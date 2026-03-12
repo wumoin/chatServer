@@ -1,0 +1,18 @@
+# 3rdparty
+
+This directory contains vendored third-party dependencies used by `chatServer`.
+
+Current dependencies:
+
+- `drogon/`: Drogon `v1.9.12` source snapshot from the official repository
+  `https://github.com/drogonframework/drogon`
+- `drogon/trantor/`: Trantor pinned to Drogon submodule commit
+  `5000e2a72687232c8675b28ce86a29ed7d44309e`
+- `jsoncpp/`: JsonCpp `1.9.6` source snapshot from the official repository
+  `https://github.com/open-source-parsers/jsoncpp`
+
+Rules for this folder:
+
+- Keep third-party code under `chatServer/3rdparty/`.
+- Pin versions explicitly instead of tracking moving branches.
+- Build third-party code out-of-source under `chatServer/build/3rdparty/`.

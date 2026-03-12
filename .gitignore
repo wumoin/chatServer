@@ -1,2 +1,5 @@
 /build
 /.cache
+/3rdparty/*/build
+/3rdparty/*/.cache
+/tmpbuild
