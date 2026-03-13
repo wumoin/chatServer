@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(chatServer LANGUAGES CXX)
+project(chatServer LANGUAGES C CXX)
 
 # 基础编译选项：
 # - 当前服务端脚手架统一使用 C++17；
@@ -15,6 +15,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CHATSERVER_THIRDPARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty")
 set(DROGON_SOURCE_DIR "${CHATSERVER_THIRDPARTY_DIR}/drogon")
 set(DROGON_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/3rdparty/drogon")
+set(HIREDIS_SOURCE_DIR "${CHATSERVER_THIRDPARTY_DIR}/hiredis")
+set(HIREDIS_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/3rdparty/hiredis")
 set(JSONCPP_SOURCE_DIR "${CHATSERVER_THIRDPARTY_DIR}/jsoncpp")
 set(JSONCPP_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/3rdparty/jsoncpp")
 
@@ -32,20 +34,28 @@ if(NOT EXISTS "${JSONCPP_SOURCE_DIR}/CMakeLists.txt")
         "Populate chatServer/3rdparty/jsoncpp first.")
 endif()
 
-# 当前阶段只需要“能启动的服务端骨架”，不需要把 Drogon 的附带工具和示例也编进来。
-# 因此这里显式关闭：
+if(NOT EXISTS "${HIREDIS_SOURCE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "Vendored hiredis source was not found at ${HIREDIS_SOURCE_DIR}. "
+        "Populate chatServer/3rdparty/hiredis first.")
+endif()
+
+# 当前阶段需要把 PostgreSQL / Redis 这两条底座链路真正打通，因此这里显式打开：
+# - ORM / PostgreSQL：让 Drogon 可以创建数据库客户端并提供异步查询能力；
+# - Redis：让 Drogon 可以创建 redis client，并支撑在线状态、缓存和健康检查探测。
+# 同时继续关闭：
 # - drogon_ctl / examples：避免无关目标拉长构建链路；
-# - ORM 和各类数据库后端：等 infra/db 真正落地后再打开；
+# - MySQL / SQLite：当前项目暂不接入；
 # - Brotli / yaml 配置：当前脚手架尚未使用。
 # 另外统一强制静态库构建，减少部署阶段对动态库查找路径的依赖。
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 set(BUILD_CTL OFF CACHE BOOL "Build drogon_ctl" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "Build Drogon examples" FORCE)
-set(BUILD_ORM OFF CACHE BOOL "Build Drogon ORM" FORCE)
-set(BUILD_POSTGRESQL OFF CACHE BOOL "Build Drogon PostgreSQL support" FORCE)
+set(BUILD_ORM ON CACHE BOOL "Build Drogon ORM" FORCE)
+set(BUILD_POSTGRESQL ON CACHE BOOL "Build Drogon PostgreSQL support" FORCE)
 set(BUILD_MYSQL OFF CACHE BOOL "Build Drogon MySQL support" FORCE)
 set(BUILD_SQLITE OFF CACHE BOOL "Build Drogon SQLite support" FORCE)
-set(BUILD_REDIS OFF CACHE BOOL "Build Drogon Redis support" FORCE)
+set(BUILD_REDIS ON CACHE BOOL "Build Drogon Redis support" FORCE)
 set(BUILD_BROTLI OFF CACHE BOOL "Build Brotli support" FORCE)
 set(BUILD_YAML_CONFIG OFF CACHE BOOL "Build yaml-cpp config support" FORCE)
 
@@ -63,23 +73,61 @@ set(BUILD_OBJECT_LIBS OFF CACHE BOOL "Build JsonCpp object library" FORCE)
 # 先构建 vendored JsonCpp，再让 Drogon 在同一棵 CMake 工程树里复用它。
 add_subdirectory("${JSONCPP_SOURCE_DIR}" "${JSONCPP_BINARY_DIR}")
 
+# hiredis 当前只作为 Drogon Redis 支持的底层 C 客户端，因此直接在本工程里编一个最小静态库：
+# - 不启用 hiredis 自带测试 / 示例目标；
+# - 不引入 SSL 变体；
+# - 只保留 Drogon Redis 路径真正需要的核心源文件。
+add_library(hiredis STATIC
+    "${HIREDIS_SOURCE_DIR}/alloc.c"
+    "${HIREDIS_SOURCE_DIR}/async.c"
+    "${HIREDIS_SOURCE_DIR}/hiredis.c"
+    "${HIREDIS_SOURCE_DIR}/net.c"
+    "${HIREDIS_SOURCE_DIR}/read.c"
+    "${HIREDIS_SOURCE_DIR}/sds.c"
+    "${HIREDIS_SOURCE_DIR}/sockcompat.c"
+)
+set_target_properties(hiredis PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON)
+target_include_directories(hiredis
+    PUBLIC "${CHATSERVER_THIRDPARTY_DIR}"
+    PRIVATE "${HIREDIS_SOURCE_DIR}")
+
 # Drogon 仍然通过 find_package(Jsoncpp) 的老接口查找 JsonCpp。
 # 这里提前把 include 路径和目标名喂给它，避免再依赖系统安装包。
 set(JSONCPP_INCLUDE_DIRS "${JSONCPP_SOURCE_DIR}/include")
 set(JSONCPP_LIBRARIES jsoncpp_static)
 
+# Drogon 对 hiredis 也仍然走 find_package(Hiredis)。
+# hiredis 源码目录本身就是 3rdparty/hiredis，因此只要把 3rdparty 根目录作为 include path，
+# Drogon 内部的 <hiredis/hiredis.h> 就能稳定命中 vendored 头文件。
+set(HIREDIS_INCLUDE_DIRS "${CHATSERVER_THIRDPARTY_DIR}")
+set(HIREDIS_LIBRARIES hiredis)
+
 # 接入 Drogon 本体。它会继续在自己的子目录里构建 trantor 等依赖。
 add_subdirectory("${DROGON_SOURCE_DIR}" "${DROGON_BINARY_DIR}")
 
-# 当前服务端可执行文件只包含最小入口 main.cpp。
-# 后续当 app/、transport/、service/ 等目录落地后，再逐步扩展源文件列表。
+# 当前服务端入口已经拆出最小 application 层：
+# - main.cpp 只负责进程入口和异常兜底；
+# - src/app/application.cpp 负责加载配置、注册健康检查，并探测 PostgreSQL / Redis 状态。
 add_executable(chatServer
+    src/app/application.cpp
     src/main.cpp
 )
 
 # Drogon 主库已经聚合了当前脚手架需要的 HTTP 服务器能力，
 # chatServer 只需直接链接 drogon 目标即可。
 target_link_libraries(chatServer PRIVATE drogon)
+
+# 统一把 src/ 作为当前目标的私有头文件搜索路径，
+# 这样 main.cpp 可以直接包含 "app/application.h" 等项目内头文件。
+target_include_directories(chatServer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# 开发阶段统一从源码树读取 app.json。
+# 这里把默认配置文件的绝对路径编译进程序，避免从不同工作目录启动时找不到配置文件。
+target_compile_definitions(
+    chatServer
+    PRIVATE CHATSERVER_DEFAULT_CONFIG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/config/app.json")
 
 # Windows 下提前关闭常见宏污染，避免未来引入更多头文件时出现 min/max 冲突。
 if(WIN32)

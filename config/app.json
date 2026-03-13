@@ -1,0 +1,105 @@
+/* 当前阶段把服务端运行所需的最小配置统一收口到 app.json：
+ * - 监听地址和端口；
+ * - IO 线程数；
+ * - Drogon 日志级别；
+ * - PostgreSQL db_clients 配置；
+ * - Redis redis_clients 配置。
+ *
+ * 这里的开发配置默认走：
+ * - PostgreSQL：本机 Unix Socket `/var/run/postgresql` 和本地数据库 `postgres`；
+ * - Redis：本机 `127.0.0.1:6379`。
+ */
+{
+    // listeners: Drogon 服务监听列表。
+    // 当前阶段只监听一个 HTTP 端口，后续如果要补 HTTPS 或多端口监听，再继续往数组里加。
+    "listeners": [
+        {
+            // address: 服务监听地址。
+            // `0.0.0.0` 表示监听所有网卡，便于本机和局域网联调。
+            "address": "0.0.0.0",
+            // port: HTTP 服务端口。
+            "port": 8848,
+            // https: 当前阶段不启用 HTTPS，因此固定为 false。
+            "https": false
+        }
+    ],
+    // db_clients: Drogon 数据库客户端配置列表。
+    // 当前阶段只保留一个默认 PostgreSQL 客户端。
+    "db_clients": [
+        {
+            // name: 数据库客户端名字。
+            // 后续代码通过这个名字获取客户端，当前统一使用 default。
+            "name": "psql",
+            // rdbms: 数据库类型。
+            // 当前项目固定使用 postgresql。
+            "rdbms": "chatserver",
+            // host: PostgreSQL 主机地址。
+            // 当前开发环境走 Unix Socket 目录，而不是 TCP 地址。
+            "host": "/var/run/postgresql",
+            // port: PostgreSQL 端口。
+            "port": 5432,
+            // dbname: 默认连接的数据库名。
+            "dbname": "chatserver",
+            // user: 数据库用户名。
+            // 当前按本地开发环境配置填写。
+            "user": "wumo",
+            // passwd: 数据库密码。
+            // 当前按本地开发环境配置填写。
+            "passwd": "123456",
+            // is_fast: 是否启用 fast client。
+            // 当前先关闭，避免后续误用同步接口时踩到限制。
+            "is_fast": false,
+            // number_of_connections: 数据库连接数。
+            // 脚手架阶段保持 1，后续按真实并发量调整。
+            "number_of_connections": 1,
+            // timeout: 单条 SQL 执行超时时间，单位秒。
+            // 小于等于 0 表示不设置超时。
+            "timeout": 5.0
+        }
+    ],
+    // redis_clients: Drogon Redis 客户端配置列表。
+    // 当前项目只保留一个默认 Redis 客户端，用于后续在线状态、短期缓存和健康检查。
+    "redis_clients": [
+        {
+            // name: Redis 客户端名字。
+            // 当前统一使用 default，后续代码通过这个名字获取 Redis client。
+            "name": "default",
+            // host: Redis 服务地址。
+            "host": "127.0.0.1",
+            // port: Redis 端口。
+            "port": 6379,
+            // username: Redis ACL 用户名。
+            // 当前本地开发环境未启用 ACL，因此留空。
+            "username": "",
+            // passwd: Redis 密码。
+            // 当前本地开发环境未设置密码，因此留空。
+            "passwd": "",
+            // db: Redis 逻辑库编号。
+            "db": 0,
+            // is_fast: 是否启用 fast redis client。
+            // 当前先关闭，避免脚手架阶段误用同步接口限制。
+            "is_fast": false,
+            // number_of_connections: Redis 连接数。
+            "number_of_connections": 1,
+            // timeout: Redis 命令超时时间，单位秒。
+            "timeout": 5.0
+        }
+    ],
+    // app: Drogon 应用级配置。
+    "app": {
+        // number_of_threads: IO 工作线程数。
+        // 设为 0 时，Drogon 会按 CPU 核心数自动选择线程数。
+        "number_of_threads": 0,
+        // enable_session: 当前阶段不开启 HTTP Session。
+        "enable_session": false,
+        // idle_connection_timeout: 空闲连接超时时间，单位秒。
+        "idle_connection_timeout": 60,
+        // log: Drogon 日志配置。
+        "log": {
+            // log_level: 当前脚手架阶段保持 INFO，便于联调时看到关键启动日志。
+            "log_level": "INFO",
+            // display_local_time: 日志时间使用本地时区显示，便于本机排障。
+            "display_local_time": true
+        }
+    }
+}
