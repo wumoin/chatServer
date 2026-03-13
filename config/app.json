@@ -29,10 +29,10 @@
         {
             // name: 数据库客户端名字。
             // 后续代码通过这个名字获取客户端，当前统一使用 default。
-            "name": "psql",
+            "name": "default",
             // rdbms: 数据库类型。
             // 当前项目固定使用 postgresql。
-            "rdbms": "chatserver",
+            "rdbms": "postgresql",
             // host: PostgreSQL 主机地址。
             // 当前开发环境走 Unix Socket 目录，而不是 TCP 地址。
             "host": "/var/run/postgresql",

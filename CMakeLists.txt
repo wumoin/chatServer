@@ -9,6 +9,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# 注册 / 登录链路需要 bcrypt 哈希能力。
+# 当前优先复用系统 libcrypt，而不是额外再引一套密码学第三方库。
+find_library(CRYPT_LIBRARY crypt)
+if(NOT CRYPT_LIBRARY)
+    message(FATAL_ERROR
+        "System libcrypt was not found. "
+        "The auth module requires bcrypt support via crypt(3).")
+endif()
+
 # 第三方目录约定：
 # 所有 vendored 依赖都放在 chatServer/3rdparty 下，
 # 并在当前构建目录中生成各自独立的 out-of-source build 产物。
@@ -111,13 +120,18 @@ add_subdirectory("${DROGON_SOURCE_DIR}" "${DROGON_BINARY_DIR}")
 # - main.cpp 只负责进程入口和异常兜底；
 # - src/app/application.cpp 负责加载配置、注册健康检查，并探测 PostgreSQL / Redis 状态。
 add_executable(chatServer
+    src/infra/id/id_generator.cpp
+    src/infra/security/password_hasher.cpp
+    src/repository/user_repository.cpp
+    src/service/auth_service.cpp
     src/app/application.cpp
+    src/transport/http/auth_controller.cpp
     src/main.cpp
 )
 
 # Drogon 主库已经聚合了当前脚手架需要的 HTTP 服务器能力，
 # chatServer 只需直接链接 drogon 目标即可。
-target_link_libraries(chatServer PRIVATE drogon)
+target_link_libraries(chatServer PRIVATE drogon "${CRYPT_LIBRARY}")
 
 # 统一把 src/ 作为当前目标的私有头文件搜索路径，
 # 这样 main.cpp 可以直接包含 "app/application.h" 等项目内头文件。

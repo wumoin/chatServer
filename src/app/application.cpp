@@ -35,7 +35,7 @@ void Application::configure()
     // 1. 先加载框架配置，让 Drogon 知道监听地址、线程数、db_clients 和 redis_clients；
     // 2. 再注册健康检查接口，保证服务启动后第一时间可探活。
     loadFrameworkConfig();
-    registerHealthHandler();
+    //registerHealthHandler();
 }
 
 void Application::run()
