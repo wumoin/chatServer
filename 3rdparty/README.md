@@ -18,6 +18,8 @@ Rules for this folder:
 - Keep third-party code under `chatServer/3rdparty/`.
 - Pin versions explicitly instead of tracking moving branches.
 - Build third-party code out-of-source under `tmpbuild/chatServer/3rdparty/`.
+- Commit vendored dependencies as normal source files, not as nested gitlinks
+  or submodule pointers.
 - Prune non-build-essential content when vendoring, such as examples, tests,
   CI metadata, local `.git/` metadata, and developer-only helper files, as
   long as the current `chatServer` build remains reproducible.
