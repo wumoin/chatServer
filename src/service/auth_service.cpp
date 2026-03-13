@@ -1,6 +1,7 @@
 #include "service/auth_service.h"
 
 #include "infra/id/id_generator.h"
+#include "infra/log/app_logger.h"
 #include "infra/security/password_hasher.h"
 
 #include <drogon/drogon.h>
@@ -14,6 +15,8 @@
 
 namespace chatserver::service {
 namespace {
+
+constexpr auto kAuthRegisterLogTag = "auth.register";
 
 std::string trimCopy(const std::string_view input)
 {
@@ -104,16 +107,17 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
                     serviceError.code =
                         protocol::error::ErrorCode::kAccountAlreadyExists;
                     serviceError.message = "account already exists";
-                    LOG_WARN << "Register rejected because account already "
-                                "exists";
+                    CHATSERVER_LOG_WARN(kAuthRegisterLogTag)
+                        << "register rejected because account already exists";
                     break;
                 case repository::CreateUserErrorKind::kDatabaseError:
                 default:
                     serviceError.code =
                         protocol::error::ErrorCode::kInternalError;
                     serviceError.message = "failed to create user";
-                    LOG_ERROR << "Register failed while inserting user: "
-                              << error.message;
+                    CHATSERVER_LOG_ERROR(kAuthRegisterLogTag)
+                        << "register failed while inserting user: "
+                        << error.message;
                     break;
                 }
 
@@ -122,8 +126,8 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
     }
     catch (const std::exception &exception)
     {
-        LOG_ERROR << "Register failed before database insert: "
-                  << exception.what();
+        CHATSERVER_LOG_ERROR(kAuthRegisterLogTag)
+            << "register failed before database insert: " << exception.what();
 
         onFailure(ServiceError{
             protocol::error::ErrorCode::kInternalError,

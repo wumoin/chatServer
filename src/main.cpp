@@ -1,4 +1,5 @@
 #include "app/application.h"
+#include "infra/log/app_logger.h"
 
 #include <exception>
 #include <iostream>
@@ -25,7 +26,15 @@ int main()
     }
     catch (const std::exception &ex)
     {
-        std::cerr << "chatServer failed to start: " << ex.what() << '\n';
+        if (chatserver::infra::log::AppLogger::isInitialized())
+        {
+            CHATSERVER_LOG_FATAL("bootstrap")
+                << "chatServer failed to start: " << ex.what();
+        }
+        else
+        {
+            std::cerr << "chatServer failed to start: " << ex.what() << '\n';
+        }
         return 1;
     }
 }

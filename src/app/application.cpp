@@ -1,5 +1,7 @@
 #include "app/application.h"
 
+#include "infra/log/app_logger.h"
+
 #include <drogon/drogon.h>
 
 #include <filesystem>
@@ -19,6 +21,7 @@ constexpr auto kHealthPath = "/health";
 // 健康检查返回中也统一暴露这个名字。
 constexpr auto kDbClientName = "default";
 constexpr auto kRedisClientName = "default";
+constexpr auto kBootstrapLogTag = "bootstrap";
 
 // 默认配置文件路径由 CMake 编译定义提供。
 // 这里封装成函数，避免在多个地方直接展开宏，后续若改为命令行参数或环境变量时更容易收口。
@@ -32,31 +35,50 @@ std::string defaultConfigPath()
 void Application::configure()
 {
     // 启动前最小装配顺序：
-    // 1. 先加载框架配置，让 Drogon 知道监听地址、线程数、db_clients 和 redis_clients；
-    // 2. 再注册健康检查接口，保证服务启动后第一时间可探活。
+    // 1. 先解析 app.json 路径，避免后续模块各自重复找配置文件；
+    // 2. 再初始化统一日志模块，让后面的框架日志和业务日志走同一套输出；
+    // 3. 再加载框架配置，让 Drogon 知道监听地址、线程数、db_clients 和 redis_clients；
+    // 4. 最后注册健康检查接口，保证服务启动后第一时间可探活。
+    resolveConfigPath();
+    initializeLogging();
     loadFrameworkConfig();
-    //registerHealthHandler();
+    registerHealthHandler();
 }
 
 void Application::run()
 {
-    // 当前阶段把关键启动信息尽量收口到少量日志里：
+    // 当前阶段把关键启动信息尽量收口到少量结构化日志里：
     // 1. 当前读取的是哪份 app.json；
-    // 2. PostgreSQL / Redis 客户端都由 app.json 中的配置创建；
-    // 3. 健康检查路径仍然固定为 /health。
-    LOG_INFO << "chatServer config loaded from " << configPath_;
-    LOG_INFO << "chatServer PostgreSQL client[" << kDbClientName
-             << "] configured via app.json";
-    LOG_INFO << "chatServer Redis client[" << kRedisClientName
-             << "] configured via app.json";
-    LOG_INFO << "chatServer bootstrap ready on /health";
+    // 2. 统一日志文件落到了哪里；
+    // 3. PostgreSQL / Redis 客户端都由 app.json 中的配置创建；
+    // 4. 健康检查路径固定为 /health。
+    CHATSERVER_LOG_INFO(kBootstrapLogTag)
+        << "config loaded from " << configPath_;
+
+    const auto &logFilePath = infra::log::AppLogger::logFilePath();
+    if (!logFilePath.empty())
+    {
+        CHATSERVER_LOG_INFO(kBootstrapLogTag)
+            << "file log enabled at " << logFilePath;
+    }
+    else
+    {
+        CHATSERVER_LOG_INFO(kBootstrapLogTag)
+            << "file log disabled, console logging only";
+    }
+
+    CHATSERVER_LOG_INFO(kBootstrapLogTag)
+        << "PostgreSQL client[" << kDbClientName << "] configured via app.json";
+    CHATSERVER_LOG_INFO(kBootstrapLogTag)
+        << "Redis client[" << kRedisClientName << "] configured via app.json";
+    CHATSERVER_LOG_INFO(kBootstrapLogTag) << "bootstrap ready on /health";
 
     // 进入 Drogon 主事件循环。
     // 从这一行开始，监听、连接管理、路由分发和数据库客户端生命周期都交给框架接管。
     drogon::app().run();
 }
 
-void Application::loadFrameworkConfig()
+void Application::resolveConfigPath()
 {
     // 先解析出编译期注入的默认配置路径。
     // 当前阶段统一从源码树读取 chatServer/config/app.json，避免启动工作目录变化导致找不到配置文件。
@@ -65,7 +87,18 @@ void Application::loadFrameworkConfig()
     {
         throw std::runtime_error("Drogon config file was not found: " + configPath_);
     }
+}
 
+void Application::initializeLogging()
+{
+    // 统一日志模块直接读取同一份 app.json：
+    // - `app.log.*` 负责日志级别和本地时间显示；
+    // - `chatserver.log.*` 负责控制台 / 文件输出策略。
+    infra::log::AppLogger::initialize(configPath_);
+}
+
+void Application::loadFrameworkConfig()
+{
     // app.json 现在同时承载：
     // 1) Drogon 监听地址、线程数、日志级别；
     // 2) PostgreSQL db_clients 配置；

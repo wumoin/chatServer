@@ -121,6 +121,7 @@ add_subdirectory("${DROGON_SOURCE_DIR}" "${DROGON_BINARY_DIR}")
 # - src/app/application.cpp 负责加载配置、注册健康检查，并探测 PostgreSQL / Redis 状态。
 add_executable(chatServer
     src/infra/id/id_generator.cpp
+    src/infra/log/app_logger.cpp
     src/infra/security/password_hasher.cpp
     src/repository/user_repository.cpp
     src/service/auth_service.cpp

@@ -85,6 +85,26 @@
             "timeout": 5.0
         }
     ],
+    // chatserver: 项目自定义配置。
+    // 当前主要用于统一日志模块的输出策略，不影响 Drogon 对 listeners / db_clients 的解析。
+    "chatserver": {
+        "log": {
+            // app_name: 日志前缀中的应用名。
+            // 当前统一保持为 chatServer，便于和后续客户端或其它进程日志区分。
+            "app_name": "chatServer",
+            // enable_console: 是否输出到控制台。
+            // 开发阶段保持开启，便于终端联调。
+            "enable_console": true,
+            // enable_file: 是否同时写入日志文件。
+            // 当前默认开启，便于后续排查启动和业务错误。
+            "enable_file": true,
+            // directory: 日志目录。
+            // 相对路径会以 app.json 所在目录为基准解析；`../logs` 最终落到 chatServer/logs/。
+            "directory": "../logs",
+            // file_name: 当前进程日志文件名。
+            "file_name": "chatserver.log"
+        }
+    },
     // app: Drogon 应用级配置。
     "app": {
         // number_of_threads: IO 工作线程数。

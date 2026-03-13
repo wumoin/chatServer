@@ -3,3 +3,5 @@
 /3rdparty/*/build
 /3rdparty/*/.cache
 /tmpbuild
+/logs
+/*.log
