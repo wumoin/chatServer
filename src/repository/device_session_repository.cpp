@@ -1,75 +1,108 @@
 #include "repository/device_session_repository.h"
 
 #include <drogon/drogon.h>
+#include <drogon/orm/Exception.h>
 
 #include <exception>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace chatserver::repository {
 namespace {
 
-constexpr auto kCreateOrReplaceSessionSql = R"SQL(
-WITH revoke_existing AS (
-    UPDATE device_sessions
-    SET session_status = 'revoked',
-        revoked_at = NOW(),
-        revoke_reason = 'relogin'
-    WHERE user_id = $1
-      AND device_id = $2
-      AND session_status = 'active'
+constexpr auto kCreateSessionSql = R"SQL(
+WITH inserted AS (
+    INSERT INTO device_sessions (
+        device_session_id,
+        user_id,
+        device_id,
+        device_platform,
+        device_name,
+        client_version,
+        login_ip,
+        login_user_agent,
+        refresh_token_hash,
+        refresh_token_expires_at
+    )
+    SELECT
+        $3::VARCHAR(32),
+        $1::VARCHAR(32),
+        $2::VARCHAR(128),
+        $4::VARCHAR(32),
+        $5::VARCHAR(128),
+        $6::VARCHAR(32),
+        NULLIF($7, '')::INET,
+        $8,
+        $9,
+        NOW() + ($10 * INTERVAL '1 second')
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM device_sessions
+        WHERE user_id = $1::VARCHAR(32)
+          AND device_id = $2::VARCHAR(128)
+          AND session_status = 'active'
+    )
+    RETURNING device_session_id
 ),
 touch_user AS (
     UPDATE users
     SET last_login_at = NOW()
-    WHERE user_id = $1
+    WHERE user_id = $1::VARCHAR(32)
+      AND EXISTS (SELECT 1 FROM inserted)
     RETURNING user_id
 )
-INSERT INTO device_sessions (
-    device_session_id,
-    user_id,
-    device_id,
-    device_platform,
-    device_name,
-    client_version,
-    login_ip,
-    login_user_agent,
-    refresh_token_hash,
-    refresh_token_expires_at
-)
-VALUES (
-    $3,
-    $1,
-    $2,
-    $4,
-    $5,
-    $6,
-    NULLIF($7, '')::INET,
-    $8,
-    $9,
-    NOW() + ($10 * INTERVAL '1 second')
-)
-RETURNING device_session_id
+SELECT device_session_id
+FROM inserted
 )SQL";
+
+bool isDuplicateActiveDeviceSession(
+    const drogon::orm::DrogonDbException &exception)
+{
+    const auto *uniqueViolation =
+        dynamic_cast<const drogon::orm::UniqueViolation *>(&exception.base());
+    if (uniqueViolation != nullptr)
+    {
+        return true;
+    }
+
+    const auto *sqlError =
+        dynamic_cast<const drogon::orm::SqlError *>(&exception.base());
+    if (sqlError != nullptr && sqlError->sqlState() == "23505")
+    {
+        return true;
+    }
+
+    const std::string_view message = exception.base().what();
+    return message.find("duplicate key value violates unique constraint") !=
+           std::string_view::npos;
+}
 
 }  // namespace
 
-void DeviceSessionRepository::createOrReplaceActiveSession(
+void DeviceSessionRepository::createActiveSession(
     CreateDeviceSessionParams params,
     CreateSessionSuccess &&onSuccess,
-    RepositoryFailure &&onFailure) const
+    CreateSessionFailure &&onFailure) const
 {
     try
     {
         auto client = dbClient();
+        auto sharedFailure =
+            std::make_shared<CreateSessionFailure>(std::move(onFailure));
 
         client->execSqlAsync(
-            kCreateOrReplaceSessionSql,
-            [onSuccess = std::move(onSuccess)](
+            kCreateSessionSql,
+            [onSuccess = std::move(onSuccess),
+             sharedFailure](
                 const drogon::orm::Result &rows) mutable {
                 if (rows.empty())
                 {
-                    onSuccess(CreatedDeviceSessionRecord{});
+                    (*sharedFailure)(CreateDeviceSessionError{
+                        CreateDeviceSessionErrorKind::kDeviceAlreadyLoggedIn,
+                        "active device session already exists",
+                    });
                     return;
                 }
 
@@ -78,9 +111,22 @@ void DeviceSessionRepository::createOrReplaceActiveSession(
                     rows[0]["device_session_id"].as<std::string>();
                 onSuccess(std::move(record));
             },
-            [onFailure = std::move(onFailure)](
+            [sharedFailure](
                 const drogon::orm::DrogonDbException &exception) mutable {
-                onFailure(exception.base().what());
+                CreateDeviceSessionError error;
+                if (isDuplicateActiveDeviceSession(exception))
+                {
+                    error.kind =
+                        CreateDeviceSessionErrorKind::kDeviceAlreadyLoggedIn;
+                    error.message = exception.base().what();
+                }
+                else
+                {
+                    error.kind = CreateDeviceSessionErrorKind::kDatabaseError;
+                    error.message = exception.base().what();
+                }
+
+                (*sharedFailure)(std::move(error));
             },
             params.userId,
             params.deviceId,
@@ -95,7 +141,10 @@ void DeviceSessionRepository::createOrReplaceActiveSession(
     }
     catch (const std::exception &exception)
     {
-        onFailure(exception.what());
+        onFailure(CreateDeviceSessionError{
+            CreateDeviceSessionErrorKind::kDatabaseError,
+            exception.what(),
+        });
     }
 }
 

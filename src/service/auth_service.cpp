@@ -267,15 +267,10 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
                 sessionParams.refreshTokenExpiresInSec =
                     tokenProvider.refreshTokenExpiresInSec();
 
-                deviceSessionRepository_.createOrReplaceActiveSession(
+                deviceSessionRepository_.createActiveSession(
                     std::move(sessionParams),
                     [loginState, sharedSuccess](
                         repository::CreatedDeviceSessionRecord record) mutable {
-                        if (!record.deviceSessionId.empty())
-                        {
-                            loginState->deviceSessionId = record.deviceSessionId;
-                        }
-
                         CHATSERVER_LOG_INFO(kAuthLoginLogTag)
                             << "login succeeded user_id="
                             << loginState->user.userId
@@ -284,10 +279,24 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
                         (*sharedSuccess)(std::move(*loginState));
                     },
                     [sharedFailure](
-                        std::string message) mutable {
+                        repository::CreateDeviceSessionError error) mutable {
+                        if (error.kind ==
+                            repository::CreateDeviceSessionErrorKind::
+                                kDeviceAlreadyLoggedIn)
+                        {
+                            CHATSERVER_LOG_WARN(kAuthLoginLogTag)
+                                << "login rejected because the device is already logged in";
+                            (*sharedFailure)(ServiceError{
+                                protocol::error::ErrorCode::
+                                    kDeviceAlreadyLoggedIn,
+                                "device already logged in",
+                            });
+                            return;
+                        }
+
                         CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
                             << "login failed while creating device session: "
-                            << message;
+                            << error.message;
                         (*sharedFailure)(ServiceError{
                             protocol::error::ErrorCode::kInternalError,
                             "failed to create device session",

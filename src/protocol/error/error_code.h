@@ -18,6 +18,8 @@ enum class ErrorCode : int {
     kInvalidCredentials = 40101,
     // 账号唯一约束冲突。
     kAccountAlreadyExists = 40901,
+    // 当前设备已有活跃登录会话。
+    kDeviceAlreadyLoggedIn = 40902,
     // 账号已被禁用。
     kAccountDisabled = 40301,
     // 账号已被锁定。
@@ -47,6 +49,8 @@ inline const char *defaultMessage(const ErrorCode code)
         return "invalid credentials";
     case ErrorCode::kAccountAlreadyExists:
         return "account already exists";
+    case ErrorCode::kDeviceAlreadyLoggedIn:
+        return "device already logged in";
     case ErrorCode::kAccountDisabled:
         return "account disabled";
     case ErrorCode::kAccountLocked:

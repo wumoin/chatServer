@@ -209,6 +209,11 @@ void AuthController::loginUser(
                 statusCode = drogon::k401Unauthorized;
             }
             else if (error.code ==
+                     protocol::error::ErrorCode::kDeviceAlreadyLoggedIn)
+            {
+                statusCode = drogon::k409Conflict;
+            }
+            else if (error.code ==
                          protocol::error::ErrorCode::kAccountDisabled ||
                      error.code == protocol::error::ErrorCode::kAccountLocked)
             {
