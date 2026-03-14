@@ -57,6 +57,32 @@ SELECT device_session_id
 FROM inserted
 )SQL";
 
+constexpr auto kRevokeSessionSql = R"SQL(
+WITH target AS (
+    SELECT session_status
+    FROM device_sessions
+    WHERE user_id = $1::VARCHAR(32)
+      AND device_session_id = $2::VARCHAR(32)
+),
+updated AS (
+    UPDATE device_sessions
+    SET session_status = 'revoked',
+        revoked_at = NOW(),
+        revoke_reason = $3::VARCHAR(64)
+    WHERE user_id = $1::VARCHAR(32)
+      AND device_session_id = $2::VARCHAR(32)
+      AND session_status = 'active'
+    RETURNING device_session_id
+)
+SELECT
+    EXISTS (SELECT 1 FROM target) AS session_exists,
+    EXISTS (SELECT 1 FROM updated) AS session_revoked
+)SQL";
+// 这条 SQL 刻意不直接 DELETE 会话，而是只做状态流转：
+// - active -> revoked/logout
+// - 已经非 active 时保留原状态，交给上层按幂等成功处理
+// - target 不存在时再由 service 判断成“无效访问令牌”
+
 bool isDuplicateActiveDeviceSession(
     const drogon::orm::DrogonDbException &exception)
 {
@@ -145,6 +171,63 @@ void DeviceSessionRepository::createActiveSession(
             CreateDeviceSessionErrorKind::kDatabaseError,
             exception.what(),
         });
+    }
+}
+
+void DeviceSessionRepository::revokeSession(
+    RevokeDeviceSessionParams params,
+    RevokeSessionSuccess &&onSuccess,
+    RevokeSessionFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+
+        client->execSqlAsync(
+            kRevokeSessionSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                RevokeDeviceSessionResult result;
+                if (rows.empty())
+                {
+                    result.status = RevokeDeviceSessionStatus::kNotFound;
+                    onSuccess(std::move(result));
+                    return;
+                }
+
+                const bool sessionExists = rows[0]["session_exists"].as<bool>();
+                const bool sessionRevoked = rows[0]["session_revoked"].as<bool>();
+
+                // 三种结果对应三种上层语义：
+                // - 不存在：token 对应不到真实会话
+                // - 已更新：本次真的完成了登出
+                // - 存在但没更新：说明之前已经是非 active，会按幂等成功处理
+                if (!sessionExists)
+                {
+                    result.status = RevokeDeviceSessionStatus::kNotFound;
+                }
+                else if (sessionRevoked)
+                {
+                    result.status = RevokeDeviceSessionStatus::kRevoked;
+                }
+                else
+                {
+                    result.status = RevokeDeviceSessionStatus::kAlreadyInactive;
+                }
+
+                onSuccess(std::move(result));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(RevokeDeviceSessionError{exception.base().what()});
+            },
+            params.userId,
+            params.deviceSessionId,
+            params.revokeReason);
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(RevokeDeviceSessionError{exception.what()});
     }
 }
 

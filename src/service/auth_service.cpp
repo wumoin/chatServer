@@ -20,6 +20,7 @@ namespace {
 
 constexpr auto kAuthRegisterLogTag = "auth.register";
 constexpr auto kAuthLoginLogTag = "auth.login";
+constexpr auto kAuthLogoutLogTag = "auth.logout";
 
 std::string trimCopy(const std::string_view input)
 {
@@ -320,6 +321,102 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query user",
+            });
+        });
+}
+
+void AuthService::logoutUser(std::string accessToken,
+                             LogoutSuccess &&onSuccess,
+                             LogoutFailure &&onFailure) const
+{
+    // 和登录一样，登出也会走异步 repository 回调。
+    // 这里先把 success / failure 收口成 shared callback，避免后续多个分支重复 move。
+    auto sharedSuccess =
+        std::make_shared<LogoutSuccess>(std::move(onSuccess));
+    auto sharedFailure =
+        std::make_shared<LogoutFailure>(std::move(onFailure));
+
+    accessToken = trimCopy(accessToken);
+    if (accessToken.empty())
+    {
+        (*sharedFailure)(ServiceError{
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            "invalid access token",
+        });
+        return;
+    }
+
+    infra::security::TokenProvider tokenProvider;
+    infra::security::AccessTokenClaims claims;
+    if (!tokenProvider.verifyAccessToken(accessToken, &claims))
+    {
+        CHATSERVER_LOG_WARN(kAuthLogoutLogTag)
+            << "logout rejected because access token verification failed";
+        (*sharedFailure)(ServiceError{
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            "invalid access token",
+        });
+        return;
+    }
+
+    repository::RevokeDeviceSessionParams revokeParams;
+    revokeParams.userId = claims.userId;
+    revokeParams.deviceSessionId = claims.deviceSessionId;
+    revokeParams.revokeReason = "logout";
+
+    // 当前登出语义是：
+    // 1) access token 合法 -> 定位唯一 device_session；
+    // 2) active -> 改成 revoked/logout；
+    // 3) 已经不是 active -> 按幂等成功处理；
+    // 4) 找不到 device_session -> 视为无效访问令牌。
+    deviceSessionRepository_.revokeSession(
+        std::move(revokeParams),
+        [claims,
+         sharedSuccess,
+         sharedFailure](
+            repository::RevokeDeviceSessionResult result) mutable {
+            if (result.status ==
+                repository::RevokeDeviceSessionStatus::kNotFound)
+            {
+                CHATSERVER_LOG_WARN(kAuthLogoutLogTag)
+                    << "logout rejected because device session was not found"
+                    << " user_id=" << claims.userId
+                    << " device_session_id=" << claims.deviceSessionId;
+                (*sharedFailure)(ServiceError{
+                    protocol::error::ErrorCode::kInvalidAccessToken,
+                    "invalid access token",
+                });
+                return;
+            }
+
+            if (result.status ==
+                repository::RevokeDeviceSessionStatus::kRevoked)
+            {
+                CHATSERVER_LOG_INFO(kAuthLogoutLogTag)
+                    << "logout succeeded user_id=" << claims.userId
+                    << " device_session_id=" << claims.deviceSessionId;
+            }
+            else
+            {
+                CHATSERVER_LOG_INFO(kAuthLogoutLogTag)
+                    << "logout treated as idempotent success for inactive session"
+                    << " user_id=" << claims.userId
+                    << " device_session_id=" << claims.deviceSessionId;
+            }
+
+            (*sharedSuccess)();
+        },
+        [claims,
+         sharedFailure](
+            repository::RevokeDeviceSessionError error) mutable {
+            CHATSERVER_LOG_ERROR(kAuthLogoutLogTag)
+                << "logout failed while revoking device session: "
+                << error.message
+                << " user_id=" << claims.userId
+                << " device_session_id=" << claims.deviceSessionId;
+            (*sharedFailure)(ServiceError{
+                protocol::error::ErrorCode::kInternalError,
+                "failed to revoke device session",
             });
         });
 }

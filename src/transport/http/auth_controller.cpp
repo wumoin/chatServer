@@ -6,8 +6,11 @@
 
 #include <drogon/drogon.h>
 
+#include <cctype>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace chatserver::transport::http {
@@ -27,6 +30,63 @@ std::string resolveRequestId(const drogon::HttpRequestPtr &request)
         return requestId;
     }
     return drogon::utils::getUuid(true);
+}
+
+std::string trimCopy(const std::string_view input)
+{
+    // HTTP header 里的 token 和 scheme 同样需要做最小 trim，
+    // 避免客户端多带了前后空格时把问题传播到 service 层。
+    std::size_t begin = 0;
+    std::size_t end = input.size();
+
+    while (begin < end &&
+           std::isspace(static_cast<unsigned char>(input[begin])) != 0)
+    {
+        ++begin;
+    }
+
+    while (end > begin &&
+           std::isspace(static_cast<unsigned char>(input[end - 1])) != 0)
+    {
+        --end;
+    }
+
+    return std::string(input.substr(begin, end - begin));
+}
+
+std::optional<std::string> resolveBearerAccessToken(
+    const drogon::HttpRequestPtr &request)
+{
+    // 登出接口当前统一从 Authorization: Bearer <token> 读取访问令牌。
+    // 这里只做“有没有 / 格式像不像 Bearer token”的边界判断，
+    // 真正的签名校验继续留给 AuthService + TokenProvider。
+    auto authorization = request->getHeader("Authorization");
+    if (authorization.empty())
+    {
+        authorization = request->getHeader("authorization");
+    }
+
+    authorization = trimCopy(authorization);
+    if (authorization.size() <= 7)
+    {
+        return std::nullopt;
+    }
+
+    const std::string_view headerView(authorization);
+    const std::string_view scheme = headerView.substr(0, 6);
+    if (!(scheme == "Bearer" || scheme == "bearer" || scheme == "BEARER") ||
+        headerView[6] != ' ')
+    {
+        return std::nullopt;
+    }
+
+    const std::string token = trimCopy(headerView.substr(7));
+    if (token.empty())
+    {
+        return std::nullopt;
+    }
+
+    return token;
 }
 
 // 统一构造认证接口响应。
@@ -218,6 +278,57 @@ void AuthController::loginUser(
                      error.code == protocol::error::ErrorCode::kAccountLocked)
             {
                 statusCode = drogon::k403Forbidden;
+            }
+
+            (*sharedCallback)(makeResponse(statusCode,
+                                           requestId,
+                                           error.code,
+                                           error.message));
+        });
+}
+
+void AuthController::logoutUser(
+    const drogon::HttpRequestPtr &request,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
+{
+    // 登出接口不读 JSON body，只依赖 request_id 和 Authorization header。
+    const std::string requestId = resolveRequestId(request);
+
+    auto sharedCallback =
+        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
+            std::move(callback));
+
+    const auto accessToken = resolveBearerAccessToken(request);
+    if (!accessToken.has_value())
+    {
+        // 缺 token / Bearer 格式不正确，直接在 controller 层返回 401，
+        // 不再把明显的协议错误继续传到 service。
+        (*sharedCallback)(makeResponse(
+            drogon::k401Unauthorized,
+            requestId,
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            protocol::error::defaultMessage(
+                protocol::error::ErrorCode::kInvalidAccessToken)));
+        return;
+    }
+
+    authService_.logoutUser(
+        *accessToken,
+        [sharedCallback, requestId]() mutable {
+            // 登出成功后当前不返回额外业务字段，空 data 即可。
+            (*sharedCallback)(makeResponse(
+                drogon::k200OK,
+                requestId,
+                protocol::error::ErrorCode::kOk,
+                protocol::error::defaultMessage(
+                    protocol::error::ErrorCode::kOk)));
+        },
+        [sharedCallback, requestId](service::ServiceError error) mutable {
+            drogon::HttpStatusCode statusCode = drogon::k500InternalServerError;
+            if (error.code ==
+                protocol::error::ErrorCode::kInvalidAccessToken)
+            {
+                statusCode = drogon::k401Unauthorized;
             }
 
             (*sharedCallback)(makeResponse(statusCode,

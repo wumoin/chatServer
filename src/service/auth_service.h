@@ -38,6 +38,8 @@ class AuthService {
     using LoginSuccess =
         std::function<void(protocol::dto::auth::LoginResultView)>;
     using LoginFailure = std::function<void(ServiceError)>;
+    using LogoutSuccess = std::function<void()>;
+    using LogoutFailure = std::function<void(ServiceError)>;
 
     /**
      * @brief 执行注册用例。
@@ -60,6 +62,16 @@ class AuthService {
                    LoginRequestContext context,
                    LoginSuccess &&onSuccess,
                    LoginFailure &&onFailure) const;
+
+    /**
+     * @brief 执行当前设备登出用例，并失效对应的设备会话。
+     * @param accessToken 当前登录态对应的访问令牌。
+     * @param onSuccess 登出成功后的回调。
+     * @param onFailure 登出失败后的回调，参数为统一业务错误。
+     */
+    void logoutUser(std::string accessToken,
+                    LogoutSuccess &&onSuccess,
+                    LogoutFailure &&onFailure) const;
 
   private:
     /**
