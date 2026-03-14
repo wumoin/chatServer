@@ -51,6 +51,14 @@ class Application {
     void initializeLogging();
 
     /**
+     * @brief 初始化认证安全基础设施。
+     *
+     * 当前主要负责读取 token 相关配置，
+     * 让登录接口后续可以统一生成 access token / refresh token。
+     */
+    void initializeSecurity();
+
+    /**
      * @brief 加载 Drogon 配置文件。
      *
      * 这里假设配置文件路径已经由 `resolveConfigPath()` 解析完成。

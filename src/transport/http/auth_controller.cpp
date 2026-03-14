@@ -1,5 +1,6 @@
 #include "transport/http/auth_controller.h"
 
+#include "protocol/dto/auth/login_dto.h"
 #include "protocol/dto/auth/register_dto.h"
 #include "protocol/error/error_code.h"
 
@@ -132,6 +133,86 @@ void AuthController::registerUser(
                      protocol::error::ErrorCode::kAccountAlreadyExists)
             {
                 statusCode = drogon::k409Conflict;
+            }
+
+            (*sharedCallback)(makeResponse(statusCode,
+                                           requestId,
+                                           error.code,
+                                           error.message));
+        });
+}
+
+void AuthController::loginUser(
+    const drogon::HttpRequestPtr &request,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
+{
+    const std::string requestId = resolveRequestId(request);
+
+    auto sharedCallback =
+        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
+            std::move(callback));
+
+    const auto json = request->getJsonObject();
+    if (json == nullptr)
+    {
+        (*sharedCallback)(makeResponse(
+            drogon::k400BadRequest,
+            requestId,
+            protocol::error::ErrorCode::kInvalidJson,
+            protocol::error::defaultMessage(
+                protocol::error::ErrorCode::kInvalidJson)));
+        return;
+    }
+
+    protocol::dto::auth::LoginRequest loginRequest;
+    std::string parseError;
+    if (!protocol::dto::auth::parseLoginRequest(*json, loginRequest, parseError))
+    {
+        (*sharedCallback)(makeResponse(
+            drogon::k400BadRequest,
+            requestId,
+            protocol::error::ErrorCode::kInvalidArgument,
+            parseError));
+        return;
+    }
+
+    service::LoginRequestContext context;
+    context.loginIp = request->getPeerAddr().toIp();
+    const auto userAgent = request->getHeader("User-Agent");
+    if (!userAgent.empty())
+    {
+        context.userAgent = userAgent;
+    }
+
+    authService_.loginUser(
+        std::move(loginRequest),
+        std::move(context),
+        [sharedCallback, requestId](
+            protocol::dto::auth::LoginResultView result) mutable {
+            (*sharedCallback)(makeResponse(
+                drogon::k200OK,
+                requestId,
+                protocol::error::ErrorCode::kOk,
+                protocol::error::defaultMessage(
+                    protocol::error::ErrorCode::kOk),
+                protocol::dto::auth::toJson(result)));
+        },
+        [sharedCallback, requestId](service::ServiceError error) mutable {
+            drogon::HttpStatusCode statusCode = drogon::k500InternalServerError;
+            if (error.code == protocol::error::ErrorCode::kInvalidArgument)
+            {
+                statusCode = drogon::k400BadRequest;
+            }
+            else if (error.code ==
+                     protocol::error::ErrorCode::kInvalidCredentials)
+            {
+                statusCode = drogon::k401Unauthorized;
+            }
+            else if (error.code ==
+                         protocol::error::ErrorCode::kAccountDisabled ||
+                     error.code == protocol::error::ErrorCode::kAccountLocked)
+            {
+                statusCode = drogon::k403Forbidden;
             }
 
             (*sharedCallback)(makeResponse(statusCode,

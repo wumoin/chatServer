@@ -17,6 +17,12 @@ class IdGenerator {
      */
     std::string nextUserId() const;
 
+    /**
+     * @brief 生成新的设备会话业务主键。
+     * @return 格式为 `ds_` + 24 位十六进制字符的设备会话 ID。
+     */
+    std::string nextDeviceSessionId() const;
+
   private:
     /**
      * @brief 生成带业务前缀的字符串 ID。

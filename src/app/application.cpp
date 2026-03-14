@@ -1,6 +1,7 @@
 #include "app/application.h"
 
 #include "infra/log/app_logger.h"
+#include "infra/security/token_provider.h"
 
 #include <drogon/drogon.h>
 
@@ -37,10 +38,12 @@ void Application::configure()
     // 启动前最小装配顺序：
     // 1. 先解析 app.json 路径，避免后续模块各自重复找配置文件；
     // 2. 再初始化统一日志模块，让后面的框架日志和业务日志走同一套输出；
-    // 3. 再加载框架配置，让 Drogon 知道监听地址、线程数、db_clients 和 redis_clients；
-    // 4. 最后注册健康检查接口，保证服务启动后第一时间可探活。
+    // 3. 再初始化认证安全基础设施，让登录接口能读取 token 配置；
+    // 4. 再加载框架配置，让 Drogon 知道监听地址、线程数、db_clients 和 redis_clients；
+    // 5. 最后注册健康检查接口，保证服务启动后第一时间可探活。
     resolveConfigPath();
     initializeLogging();
+    initializeSecurity();
     loadFrameworkConfig();
     registerHealthHandler();
 }
@@ -95,6 +98,15 @@ void Application::initializeLogging()
     // - `app.log.*` 负责日志级别和本地时间显示；
     // - `chatserver.log.*` 负责控制台 / 文件输出策略。
     infra::log::AppLogger::initialize(configPath_);
+}
+
+void Application::initializeSecurity()
+{
+    // token provider 当前同样直接读取 app.json：
+    // - `chatserver.auth.access_token_secret`
+    // - `chatserver.auth.access_token_expires_in_sec`
+    // - `chatserver.auth.refresh_token_expires_in_sec`
+    infra::security::TokenProvider::initialize(configPath_);
 }
 
 void Application::loadFrameworkConfig()

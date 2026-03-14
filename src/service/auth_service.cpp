@@ -3,11 +3,13 @@
 #include "infra/id/id_generator.h"
 #include "infra/log/app_logger.h"
 #include "infra/security/password_hasher.h"
+#include "infra/security/token_provider.h"
 
 #include <drogon/drogon.h>
 
 #include <algorithm>
 #include <cctype>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -17,6 +19,7 @@ namespace chatserver::service {
 namespace {
 
 constexpr auto kAuthRegisterLogTag = "auth.register";
+constexpr auto kAuthLoginLogTag = "auth.login";
 
 std::string trimCopy(const std::string_view input)
 {
@@ -51,6 +54,12 @@ bool isAccountCharacterAllowed(const char ch)
     // - `_`、`.`、`-`
     const unsigned char value = static_cast<unsigned char>(ch);
     return std::isalnum(value) != 0 || ch == '_' || ch == '.' || ch == '-';
+}
+
+bool isDevicePlatformCharacterAllowed(const char ch)
+{
+    const unsigned char value = static_cast<unsigned char>(ch);
+    return std::isalnum(value) != 0 || ch == '_' || ch == '-';
 }
 
 }  // namespace
@@ -136,6 +145,176 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
     }
 }
 
+void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
+                            LoginRequestContext context,
+                            LoginSuccess &&onSuccess,
+                            LoginFailure &&onFailure) const
+{
+    auto sharedSuccess =
+        std::make_shared<LoginSuccess>(std::move(onSuccess));
+    auto sharedFailure =
+        std::make_shared<LoginFailure>(std::move(onFailure));
+
+    ServiceError validationError;
+    if (!validateLoginRequest(request, validationError))
+    {
+        (*sharedFailure)(std::move(validationError));
+        return;
+    }
+
+    const std::string accountForLookup = request.account;
+    userRepository_.findUserByAccount(
+        accountForLookup,
+        [request = std::move(request),
+         context = std::move(context),
+         sharedSuccess,
+         sharedFailure,
+         this](std::optional<repository::AuthUserRecord> userRecord) mutable {
+            if (!userRecord.has_value())
+            {
+                CHATSERVER_LOG_WARN(kAuthLoginLogTag)
+                    << "login rejected because account does not exist";
+                (*sharedFailure)(ServiceError{
+                    protocol::error::ErrorCode::kInvalidCredentials,
+                    "invalid credentials",
+                });
+                return;
+            }
+
+            if (userRecord->accountStatus == "disabled")
+            {
+                CHATSERVER_LOG_WARN(kAuthLoginLogTag)
+                    << "login rejected because account is disabled";
+                (*sharedFailure)(ServiceError{
+                    protocol::error::ErrorCode::kAccountDisabled,
+                    "account disabled",
+                });
+                return;
+            }
+
+            if (userRecord->accountStatus == "locked")
+            {
+                CHATSERVER_LOG_WARN(kAuthLoginLogTag)
+                    << "login rejected because account is locked";
+                (*sharedFailure)(ServiceError{
+                    protocol::error::ErrorCode::kAccountLocked,
+                    "account locked",
+                });
+                return;
+            }
+
+            if (userRecord->passwordAlgo != "bcrypt")
+            {
+                CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
+                    << "login failed because password algorithm is unsupported: "
+                    << userRecord->passwordAlgo;
+                (*sharedFailure)(ServiceError{
+                    protocol::error::ErrorCode::kInternalError,
+                    "unsupported password algorithm",
+                });
+                return;
+            }
+
+            infra::security::PasswordHasher passwordHasher;
+            if (!passwordHasher.verifyPassword(request.password,
+                                               userRecord->passwordHash))
+            {
+                CHATSERVER_LOG_WARN(kAuthLoginLogTag)
+                    << "login rejected because password does not match";
+                (*sharedFailure)(ServiceError{
+                    protocol::error::ErrorCode::kInvalidCredentials,
+                    "invalid credentials",
+                });
+                return;
+            }
+
+            try
+            {
+                infra::id::IdGenerator idGenerator;
+                infra::security::TokenProvider tokenProvider;
+
+                const std::string deviceSessionId =
+                    idGenerator.nextDeviceSessionId();
+                const std::string accessToken = tokenProvider.issueAccessToken(
+                    userRecord->userId,
+                    deviceSessionId);
+                const std::string refreshToken =
+                    tokenProvider.issueRefreshToken();
+                const std::string refreshTokenHash =
+                    tokenProvider.hashOpaqueToken(refreshToken);
+
+                auto loginState =
+                    std::make_shared<protocol::dto::auth::LoginResultView>();
+                loginState->user.userId = userRecord->userId;
+                loginState->user.nickname = userRecord->nickname;
+                loginState->user.avatarUrl = userRecord->avatarUrl;
+                loginState->deviceSessionId = deviceSessionId;
+                loginState->accessToken = accessToken;
+                loginState->refreshToken = refreshToken;
+                loginState->expiresInSec =
+                    tokenProvider.accessTokenExpiresInSec();
+
+                repository::CreateDeviceSessionParams sessionParams;
+                sessionParams.deviceSessionId = deviceSessionId;
+                sessionParams.userId = userRecord->userId;
+                sessionParams.deviceId = request.deviceId;
+                sessionParams.devicePlatform = request.devicePlatform;
+                sessionParams.deviceName = request.deviceName;
+                sessionParams.clientVersion = request.clientVersion;
+                sessionParams.loginIp = context.loginIp;
+                sessionParams.loginUserAgent = context.userAgent;
+                sessionParams.refreshTokenHash = refreshTokenHash;
+                sessionParams.refreshTokenExpiresInSec =
+                    tokenProvider.refreshTokenExpiresInSec();
+
+                deviceSessionRepository_.createOrReplaceActiveSession(
+                    std::move(sessionParams),
+                    [loginState, sharedSuccess](
+                        repository::CreatedDeviceSessionRecord record) mutable {
+                        if (!record.deviceSessionId.empty())
+                        {
+                            loginState->deviceSessionId = record.deviceSessionId;
+                        }
+
+                        CHATSERVER_LOG_INFO(kAuthLoginLogTag)
+                            << "login succeeded user_id="
+                            << loginState->user.userId
+                            << " device_session_id="
+                            << loginState->deviceSessionId;
+                        (*sharedSuccess)(std::move(*loginState));
+                    },
+                    [sharedFailure](
+                        std::string message) mutable {
+                        CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
+                            << "login failed while creating device session: "
+                            << message;
+                        (*sharedFailure)(ServiceError{
+                            protocol::error::ErrorCode::kInternalError,
+                            "failed to create device session",
+                        });
+                    });
+            }
+            catch (const std::exception &exception)
+            {
+                CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
+                    << "login failed before creating session: "
+                    << exception.what();
+                (*sharedFailure)(ServiceError{
+                    protocol::error::ErrorCode::kInternalError,
+                    "failed to issue login tokens",
+                });
+            }
+        },
+        [sharedFailure](std::string message) mutable {
+            CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
+                << "login failed while querying user: " << message;
+            (*sharedFailure)(ServiceError{
+                protocol::error::ErrorCode::kInternalError,
+                "failed to query user",
+            });
+        });
+}
+
 bool AuthService::validateRegisterRequest(
     protocol::dto::auth::RegisterRequest &request,
     ServiceError &error) const
@@ -210,6 +389,117 @@ bool AuthService::validateRegisterRequest(
         else
         {
             request.avatarUrl = std::move(avatarUrl);
+        }
+    }
+
+    return true;
+}
+
+bool AuthService::validateLoginRequest(protocol::dto::auth::LoginRequest &request,
+                                       ServiceError &error) const
+{
+    const std::string trimmedAccount = trimCopy(request.account);
+    if (trimmedAccount != request.account)
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message = "account must not contain leading or trailing spaces";
+        return false;
+    }
+
+    if (request.account.size() < 3 || request.account.size() > 64)
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message = "account length must be between 3 and 64";
+        return false;
+    }
+
+    if (!std::all_of(request.account.begin(),
+                     request.account.end(),
+                     isAccountCharacterAllowed))
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message =
+            "account may contain only letters, digits, '_', '.' and '-'";
+        return false;
+    }
+
+    if (request.password.empty())
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message = "password must not be empty";
+        return false;
+    }
+
+    const std::string trimmedDeviceId = trimCopy(request.deviceId);
+    if (trimmedDeviceId.empty() || trimmedDeviceId != request.deviceId ||
+        request.deviceId.size() > 128)
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message =
+            "device_id must not be empty, contain leading/trailing spaces or exceed 128 characters";
+        return false;
+    }
+
+    request.devicePlatform = trimCopy(request.devicePlatform);
+    if (request.devicePlatform.empty() || request.devicePlatform.size() > 32)
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message = "device_platform length must be between 1 and 32";
+        return false;
+    }
+
+    if (!std::all_of(request.devicePlatform.begin(),
+                     request.devicePlatform.end(),
+                     isDevicePlatformCharacterAllowed))
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message =
+            "device_platform may contain only letters, digits, '_' and '-'";
+        return false;
+    }
+
+    std::transform(request.devicePlatform.begin(),
+                   request.devicePlatform.end(),
+                   request.devicePlatform.begin(),
+                   [](unsigned char ch) {
+                       return static_cast<char>(std::tolower(ch));
+                   });
+
+    if (request.deviceName.has_value())
+    {
+        auto deviceName = trimCopy(*request.deviceName);
+        if (deviceName.empty())
+        {
+            request.deviceName.reset();
+        }
+        else if (deviceName.size() > 128)
+        {
+            error.code = protocol::error::ErrorCode::kInvalidArgument;
+            error.message = "device_name length must not exceed 128";
+            return false;
+        }
+        else
+        {
+            request.deviceName = std::move(deviceName);
+        }
+    }
+
+    if (request.clientVersion.has_value())
+    {
+        auto clientVersion = trimCopy(*request.clientVersion);
+        if (clientVersion.empty())
+        {
+            request.clientVersion.reset();
+        }
+        else if (clientVersion.size() > 32)
+        {
+            error.code = protocol::error::ErrorCode::kInvalidArgument;
+            error.message = "client_version length must not exceed 32";
+            return false;
+        }
+        else
+        {
+            request.clientVersion = std::move(clientVersion);
         }
     }
 

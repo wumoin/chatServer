@@ -18,6 +18,7 @@ class AuthController : public drogon::HttpController<AuthController> {
   public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(AuthController::registerUser, "/api/v1/auth/register", drogon::Post);
+    ADD_METHOD_TO(AuthController::loginUser, "/api/v1/auth/login", drogon::Post);
     METHOD_LIST_END
 
     /**
@@ -26,6 +27,15 @@ class AuthController : public drogon::HttpController<AuthController> {
      * @param callback 生成响应后回写给客户端的回调函数。
      */
     void registerUser(
+        const drogon::HttpRequestPtr &request,
+        std::function<void(const drogon::HttpResponsePtr &)> &&callback) const;
+
+    /**
+     * @brief 处理用户登录 HTTP 请求。
+     * @param request Drogon 封装后的 HTTP 请求对象。
+     * @param callback 生成响应后回写给客户端的回调函数。
+     */
+    void loginUser(
         const drogon::HttpRequestPtr &request,
         std::function<void(const drogon::HttpResponsePtr &)> &&callback) const;
 

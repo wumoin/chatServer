@@ -123,6 +123,8 @@ add_executable(chatServer
     src/infra/id/id_generator.cpp
     src/infra/log/app_logger.cpp
     src/infra/security/password_hasher.cpp
+    src/infra/security/token_provider.cpp
+    src/repository/device_session_repository.cpp
     src/repository/user_repository.cpp
     src/service/auth_service.cpp
     src/app/application.cpp

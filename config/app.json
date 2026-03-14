@@ -88,6 +88,15 @@
     // chatserver: 项目自定义配置。
     // 当前主要用于统一日志模块的输出策略，不影响 Drogon 对 listeners / db_clients 的解析。
     "chatserver": {
+        "auth": {
+            // access_token_secret: access token 签名密钥。
+            // 当前第一版 access token 会把用户和 device_session 信息编码进去，并用这个密钥做签名。
+            "access_token_secret": "chatserver-dev-secret-change-me",
+            // access_token_expires_in_sec: access token 有效时长，单位秒。
+            "access_token_expires_in_sec": 7200,
+            // refresh_token_expires_in_sec: refresh token 有效时长，单位秒。
+            "refresh_token_expires_in_sec": 2592000
+        },
         "log": {
             // app_name: 日志前缀中的应用名。
             // 当前统一保持为 chatServer，便于和后续客户端或其它进程日志区分。

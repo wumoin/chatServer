@@ -31,6 +31,20 @@ RETURNING
     (EXTRACT(EPOCH FROM created_at) * 1000)::BIGINT AS created_at_ms
 )SQL";
 
+constexpr auto kFindUserByAccountSql = R"SQL(
+SELECT
+    user_id,
+    account,
+    nickname,
+    avatar_url,
+    password_hash,
+    password_algo,
+    account_status
+FROM users
+WHERE account = $1
+LIMIT 1
+)SQL";
+
 bool isDuplicateAccountError(const drogon::orm::DrogonDbException &exception)
 {
     // Drogon 在不同数据库驱动、不同版本下，对唯一约束异常的具体类型封装并不完全一致。
@@ -139,6 +153,51 @@ void UserRepository::createUser(CreateUserParams params,
         // 这类错误同样按数据库错误路径往上抛。
         onFailure(CreateUserError{CreateUserErrorKind::kDatabaseError,
                                   exception.what()});
+    }
+}
+
+void UserRepository::findUserByAccount(std::string account,
+                                       FindUserByAccountSuccess &&onSuccess,
+                                       RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+
+        client->execSqlAsync(
+            kFindUserByAccountSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                if (rows.empty())
+                {
+                    onSuccess(std::nullopt);
+                    return;
+                }
+
+                const auto &row = rows[0];
+                AuthUserRecord record;
+                record.userId = row["user_id"].as<std::string>();
+                record.account = row["account"].as<std::string>();
+                record.nickname = row["nickname"].as<std::string>();
+                if (!row["avatar_url"].isNull())
+                {
+                    record.avatarUrl = row["avatar_url"].as<std::string>();
+                }
+                record.passwordHash = row["password_hash"].as<std::string>();
+                record.passwordAlgo = row["password_algo"].as<std::string>();
+                record.accountStatus = row["account_status"].as<std::string>();
+
+                onSuccess(std::move(record));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            std::move(account));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
     }
 }
 

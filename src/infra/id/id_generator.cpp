@@ -14,6 +14,12 @@ std::string IdGenerator::nextUserId() const
     return buildPrefixedId("u_", 24);
 }
 
+std::string IdGenerator::nextDeviceSessionId() const
+{
+    // device_sessions.device_session_id 当前统一走 `ds_` 前缀。
+    return buildPrefixedId("ds_", 24);
+}
+
 std::string IdGenerator::buildPrefixedId(const std::string &prefix,
                                          const std::size_t payloadLength) const
 {
