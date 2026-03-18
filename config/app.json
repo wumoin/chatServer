@@ -3,11 +3,13 @@
  * - IO 线程数；
  * - Drogon 日志级别；
  * - PostgreSQL db_clients 配置；
- * - Redis redis_clients 配置。
+ * - Redis redis_clients 配置；
+ * - 本地文件存储目录配置。
  *
  * 这里的开发配置默认走：
  * - PostgreSQL：本机 Unix Socket `/var/run/postgresql` 和本地数据库 `postgres`；
- * - Redis：本机 `127.0.0.1:6379`。
+ * - Redis：本机 `127.0.0.1:6379`；
+ * - 文件存储：源码树下的 `chatServer/uploads/`。
  */
 {
     // listeners: Drogon 服务监听列表。
@@ -96,6 +98,24 @@
             "access_token_expires_in_sec": 7200,
             // refresh_token_expires_in_sec: refresh token 有效时长，单位秒。
             "refresh_token_expires_in_sec": 2592000
+        },
+        "storage": {
+            // provider: 当前文件存储实现类型。
+            // 现阶段先固定使用 local，本地目录联调通过后再补 MinIO 实现。
+            "provider": "local",
+            "local": {
+                // root_dir: 文件存储根目录。
+                // 相对路径会以 app.json 所在目录为基准解析；`../uploads` 最终落到 chatServer/uploads/。
+                "root_dir": "../uploads",
+                // tmp_dir: 临时文件目录。
+                // 相对路径会以 root_dir 为基准解析，上传中断或分块合并时可复用。
+                "tmp_dir": "tmp",
+                // attachments_dir: 聊天图片、文件等附件目录。
+                // 图片和普通文件当前统一先落到附件目录，再通过 content_type 区分。
+                "attachments_dir": "files",
+                // avatars_dir: 用户头像目录。
+                "avatars_dir": "avatars"
+            }
         },
         "log": {
             // app_name: 日志前缀中的应用名。

@@ -2,26 +2,16 @@
 
 #include "protocol/dto/auth/login_dto.h"
 #include "protocol/dto/auth/register_dto.h"
-#include "protocol/error/error_code.h"
 #include "repository/device_session_repository.h"
 #include "repository/user_repository.h"
+#include "service/avatar_service.h"
+#include "service/service_error.h"
 
 #include <functional>
 #include <optional>
 #include <string>
 
 namespace chatserver::service {
-
-// ServiceError 是 service 层对 controller 暴露的统一失败结果。
-// 它的职责很单一：
-// 1) 带一个稳定的业务错误码；
-// 2) 带一条可以直接回给客户端的消息。
-struct ServiceError {
-    // 业务错误码，由 protocol/error/error_code.h 定义。
-    protocol::error::ErrorCode code;
-    // 面向 controller / 客户端的文本说明。
-    std::string message;
-};
 
 // LoginRequestContext 表示登录请求里那些不直接来自 JSON body，
 // 但需要一起参与设备会话落库和风控审计的元信息。
@@ -97,6 +87,7 @@ class AuthService {
     // 第一版暂时直接以成员对象持有，后续如果需要依赖注入，再抽到 app/application 层统一装配。
     repository::UserRepository userRepository_;
     repository::DeviceSessionRepository deviceSessionRepository_;
+    AvatarService avatarService_;
 };
 
 }  // namespace chatserver::service

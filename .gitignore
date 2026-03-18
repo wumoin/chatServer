@@ -4,4 +4,7 @@
 /3rdparty/*/.cache
 /tmpbuild
 /logs
+/uploads/tmp
+/uploads/files
+/uploads/avatars
 /*.log

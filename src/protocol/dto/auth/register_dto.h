@@ -13,7 +13,7 @@ namespace chatserver::protocol::dto::auth {
 // - account
 // - password
 // - nickname
-// - avatar_url(可选)
+// - avatar_upload_key(可选)
 struct RegisterRequest {
     // 登录账号原值。
     // 这一层只做数据承载，不在这里解释账号格式是否合法。
@@ -24,9 +24,9 @@ struct RegisterRequest {
     // 展示昵称原值。
     // service 层会继续负责 trim 和长度校验。
     std::string nickname;
-    // 头像地址，可选。
-    // 当前为空时不会强行写成空字符串，而是直接用 std::optional 表达“未提供”。
-    std::optional<std::string> avatarUrl;
+    // 注册前临时上传头像返回的确认 key，可选。
+    // service 层会据此把临时头像转成正式头像，并把最终 storage key 写入 users.avatar_url。
+    std::optional<std::string> avatarUploadKey;
 };
 
 // RegisterUserView 对应注册成功后返回给客户端的用户基础信息。
@@ -85,12 +85,14 @@ inline bool parseRegisterRequest(const Json::Value &json,
         return false;
     }
 
-    // 第 5 步：校验可选字段 avatar_url。
+    // 第 5 步：校验可选字段 avatar_upload_key。
     // 当前允许它缺失，也允许显式传 null；但如果传了具体值，就必须是字符串。
-    if (json.isMember("avatar_url") && !json["avatar_url"].isNull() &&
-        !json["avatar_url"].isString())
+    if (json.isMember("avatar_upload_key") &&
+        !json["avatar_upload_key"].isNull() &&
+        !json["avatar_upload_key"].isString())
     {
-        errorMessage = "Field 'avatar_url' must be a string when provided";
+        errorMessage =
+            "Field 'avatar_upload_key' must be a string when provided";
         return false;
     }
 
@@ -100,13 +102,14 @@ inline bool parseRegisterRequest(const Json::Value &json,
     out.password = json["password"].asString();
     out.nickname = json["nickname"].asString();
 
-    if (json.isMember("avatar_url") && json["avatar_url"].isString())
+    if (json.isMember("avatar_upload_key") &&
+        json["avatar_upload_key"].isString())
     {
-        out.avatarUrl = json["avatar_url"].asString();
+        out.avatarUploadKey = json["avatar_upload_key"].asString();
     }
     else
     {
-        out.avatarUrl.reset();
+        out.avatarUploadKey.reset();
     }
 
     return true;

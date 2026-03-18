@@ -25,7 +25,7 @@ constexpr auto kAuthLogoutLogTag = "auth.logout";
 std::string trimCopy(const std::string_view input)
 {
     // 统一做一个“复制版 trim”工具，而不是原地改字符串：
-    // 1) 方便对 account / nickname / avatar_url 复用；
+    // 1) 方便对 account / nickname / avatar_upload_key 复用；
     // 2) 不会在规则判断前悄悄改变原值；
     // 3) 只有明确需要规范化时才把结果写回请求对象。
     std::size_t begin = 0;
@@ -76,6 +76,21 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
         return;
     }
 
+    std::optional<std::string> confirmedAvatarStorageKey;
+    if (request.avatarUploadKey.has_value())
+    {
+        std::string avatarStorageKey;
+        if (!avatarService_.confirmAvatarUploadKey(*request.avatarUploadKey,
+                                                   avatarStorageKey,
+                                                   validationError))
+        {
+            onFailure(std::move(validationError));
+            return;
+        }
+
+        confirmedAvatarStorageKey = std::move(avatarStorageKey);
+    }
+
     try
     {
         // 当前阶段 password hash 仍然在业务线程里同步完成。
@@ -88,7 +103,7 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
         params.userId = idGenerator.nextUserId();
         params.account = request.account;
         params.nickname = request.nickname;
-        params.avatarUrl = request.avatarUrl;
+        params.avatarUrl = confirmedAvatarStorageKey;
         params.passwordHash = passwordHasher.hashPassword(request.password);
         params.passwordAlgo = "bcrypt";
 
@@ -96,8 +111,12 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
         // 因此这一步结束后客户端只能拿到用户资料，不能直接视为“已登录”。
         userRepository_.createUser(
             std::move(params),
-            [onSuccess = std::move(onSuccess)](
+            [onSuccess = std::move(onSuccess),
+             avatarUploadKey = request.avatarUploadKey,
+             this](
                 repository::CreatedUserRecord record) mutable {
+                avatarService_.removeStorageKeyQuietly(avatarUploadKey);
+
                 protocol::dto::auth::RegisterUserView user;
                 user.userId = std::move(record.userId);
                 user.account = std::move(record.account);
@@ -107,8 +126,12 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
 
                 onSuccess(std::move(user));
             },
-            [onFailure = std::move(onFailure)](
+            [onFailure = std::move(onFailure),
+             confirmedAvatarStorageKey,
+             this](
                 const repository::CreateUserError &error) mutable {
+                avatarService_.removeStorageKeyQuietly(confirmedAvatarStorageKey);
+
                 ServiceError serviceError;
 
                 switch (error.kind)
@@ -136,6 +159,8 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
     }
     catch (const std::exception &exception)
     {
+        avatarService_.removeStorageKeyQuietly(confirmedAvatarStorageKey);
+
         CHATSERVER_LOG_ERROR(kAuthRegisterLogTag)
             << "register failed before database insert: " << exception.what();
 
@@ -476,25 +501,25 @@ bool AuthService::validateRegisterRequest(
         return false;
     }
 
-    if (request.avatarUrl.has_value())
+    if (request.avatarUploadKey.has_value())
     {
-        // avatar_url 当前只做轻量规范化：
+        // avatar_upload_key 当前只做轻量规范化：
         // - trim 后为空则按未提供处理；
-        // - 不在这里校验 URL scheme 或域名合法性，后续如果接文件服务再加更细规则。
-        auto avatarUrl = trimCopy(*request.avatarUrl);
-        if (avatarUrl.empty())
+        // - 不在这里校验 key 是否存在，具体确认逻辑留给 AvatarService。
+        auto avatarUploadKey = trimCopy(*request.avatarUploadKey);
+        if (avatarUploadKey.empty())
         {
-            request.avatarUrl.reset();
+            request.avatarUploadKey.reset();
         }
-        else if (avatarUrl.size() > 2048)
+        else if (avatarUploadKey.size() > 2048)
         {
             error.code = protocol::error::ErrorCode::kInvalidArgument;
-            error.message = "avatar_url length must not exceed 2048";
+            error.message = "avatar_upload_key length must not exceed 2048";
             return false;
         }
         else
         {
-            request.avatarUrl = std::move(avatarUrl);
+            request.avatarUploadKey = std::move(avatarUploadKey);
         }
     }
 

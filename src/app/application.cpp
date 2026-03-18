@@ -2,6 +2,8 @@
 
 #include "infra/log/app_logger.h"
 #include "infra/security/token_provider.h"
+#include "storage/file_storage.h"
+#include "storage/local_storage.h"
 
 #include <drogon/drogon.h>
 
@@ -39,11 +41,13 @@ void Application::configure()
     // 1. 先解析 app.json 路径，避免后续模块各自重复找配置文件；
     // 2. 再初始化统一日志模块，让后面的框架日志和业务日志走同一套输出；
     // 3. 再初始化认证安全基础设施，让登录接口能读取 token 配置；
-    // 4. 再加载框架配置，让 Drogon 知道监听地址、线程数、db_clients 和 redis_clients；
-    // 5. 最后注册健康检查接口，保证服务启动后第一时间可探活。
+    // 4. 再初始化统一文件存储，让上传根目录和头像/附件目录在启动时自动就绪；
+    // 5. 再加载框架配置，让 Drogon 知道监听地址、线程数、db_clients 和 redis_clients；
+    // 6. 最后注册健康检查接口，保证服务启动后第一时间可探活。
     resolveConfigPath();
     initializeLogging();
     initializeSecurity();
+    initializeStorage();
     loadFrameworkConfig();
     registerHealthHandler();
 }
@@ -74,6 +78,13 @@ void Application::run()
         << "PostgreSQL client[" << kDbClientName << "] configured via app.json";
     CHATSERVER_LOG_INFO(kBootstrapLogTag)
         << "Redis client[" << kRedisClientName << "] configured via app.json";
+    if (storage::StorageRegistry::hasDefaultStorage())
+    {
+        const auto storage = storage::StorageRegistry::defaultStorage();
+        CHATSERVER_LOG_INFO(kBootstrapLogTag)
+            << "storage provider[" << storage->providerName()
+            << "] ready " << storage->debugDescription();
+    }
     CHATSERVER_LOG_INFO(kBootstrapLogTag) << "bootstrap ready on /health";
 
     // 进入 Drogon 主事件循环。
@@ -107,6 +118,16 @@ void Application::initializeSecurity()
     // - `chatserver.auth.access_token_expires_in_sec`
     // - `chatserver.auth.refresh_token_expires_in_sec`
     infra::security::TokenProvider::initialize(configPath_);
+}
+
+void Application::initializeStorage()
+{
+    // 文件存储当前先统一走本地磁盘实现：
+    // - `chatserver.storage.provider` 目前只支持 local；
+    // - 启动时自动创建根目录、临时目录、附件目录和头像目录；
+    // - 默认实例注册到 StorageRegistry，便于后续文件服务直接复用。
+    defaultStorage_ = storage::LocalStorage::createFromConfig(configPath_);
+    storage::StorageRegistry::setDefaultStorage(defaultStorage_);
 }
 
 void Application::loadFrameworkConfig()

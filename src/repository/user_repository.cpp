@@ -45,6 +45,30 @@ WHERE account = $1
 LIMIT 1
 )SQL";
 
+constexpr auto kFindUserByIdSql = R"SQL(
+SELECT
+    user_id,
+    account,
+    nickname,
+    avatar_url
+FROM users
+WHERE user_id = $1
+LIMIT 1
+)SQL";
+
+constexpr auto kUpdateUserProfileSql = R"SQL(
+UPDATE users
+SET
+    nickname = CASE WHEN $2 THEN $3::VARCHAR(64) ELSE nickname END,
+    avatar_url = CASE WHEN $4 THEN $5::TEXT ELSE avatar_url END
+WHERE user_id = $1
+RETURNING
+    user_id,
+    account,
+    nickname,
+    avatar_url
+)SQL";
+
 bool isDuplicateAccountError(const drogon::orm::DrogonDbException &exception)
 {
     // Drogon 在不同数据库驱动、不同版本下，对唯一约束异常的具体类型封装并不完全一致。
@@ -194,6 +218,95 @@ void UserRepository::findUserByAccount(std::string account,
                 onFailure(exception.base().what());
             },
             std::move(account));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
+    }
+}
+
+void UserRepository::findUserById(std::string userId,
+                                  FindUserByIdSuccess &&onSuccess,
+                                  RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+
+        client->execSqlAsync(
+            kFindUserByIdSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                if (rows.empty())
+                {
+                    onSuccess(std::nullopt);
+                    return;
+                }
+
+                const auto &row = rows[0];
+                UserProfileRecord record;
+                record.userId = row["user_id"].as<std::string>();
+                record.account = row["account"].as<std::string>();
+                record.nickname = row["nickname"].as<std::string>();
+                if (!row["avatar_url"].isNull())
+                {
+                    record.avatarUrl = row["avatar_url"].as<std::string>();
+                }
+
+                onSuccess(std::move(record));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            std::move(userId));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
+    }
+}
+
+void UserRepository::updateUserProfile(UpdateUserProfileParams params,
+                                       UpdateUserProfileSuccess &&onSuccess,
+                                       RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+
+        client->execSqlAsync(
+            kUpdateUserProfileSql,
+            [onSuccess = std::move(onSuccess),
+             onFailure = std::move(onFailure)](
+                const drogon::orm::Result &rows) mutable {
+                if (rows.empty())
+                {
+                    onFailure("update users returned no rows");
+                    return;
+                }
+
+                const auto &row = rows[0];
+                UserProfileRecord record;
+                record.userId = row["user_id"].as<std::string>();
+                record.account = row["account"].as<std::string>();
+                record.nickname = row["nickname"].as<std::string>();
+                if (!row["avatar_url"].isNull())
+                {
+                    record.avatarUrl = row["avatar_url"].as<std::string>();
+                }
+
+                onSuccess(std::move(record));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            params.userId,
+            params.updateNickname,
+            params.nickname,
+            params.updateAvatarUrl,
+            params.avatarUrl);
     }
     catch (const std::exception &exception)
     {

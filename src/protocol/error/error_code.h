@@ -14,6 +14,8 @@ enum class ErrorCode : int {
     kInvalidJson = 40000,
     // 参数类型错误或业务校验失败。
     kInvalidArgument = 40001,
+    // 资源不存在。
+    kNotFound = 40400,
     // 访问令牌缺失、损坏或格式非法。
     kInvalidAccessToken = 40102,
     // 账号或密码不正确。
@@ -47,6 +49,8 @@ inline const char *defaultMessage(const ErrorCode code)
         return "invalid json body";
     case ErrorCode::kInvalidArgument:
         return "invalid argument";
+    case ErrorCode::kNotFound:
+        return "resource not found";
     case ErrorCode::kInvalidAccessToken:
         return "invalid access token";
     case ErrorCode::kInvalidCredentials:

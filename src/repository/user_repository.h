@@ -53,6 +53,27 @@ struct AuthUserRecord {
     std::string accountStatus;
 };
 
+/**
+ * @brief 用户基础资料记录。
+ */
+struct UserProfileRecord {
+    std::string userId;
+    std::string account;
+    std::string nickname;
+    std::optional<std::string> avatarUrl;
+};
+
+/**
+ * @brief 更新用户资料时的最小字段集合。
+ */
+struct UpdateUserProfileParams {
+    std::string userId;
+    bool updateNickname{false};
+    std::optional<std::string> nickname;
+    bool updateAvatarUrl{false};
+    std::optional<std::string> avatarUrl;
+};
+
 enum class CreateUserErrorKind {
     // account 唯一约束冲突。
     kAccountAlreadyExists,
@@ -73,6 +94,9 @@ class UserRepository {
     using CreateUserFailure = std::function<void(CreateUserError)>;
     using FindUserByAccountSuccess =
         std::function<void(std::optional<AuthUserRecord>)>;
+    using FindUserByIdSuccess =
+        std::function<void(std::optional<UserProfileRecord>)>;
+    using UpdateUserProfileSuccess = std::function<void(UserProfileRecord)>;
     using RepositoryFailure = std::function<void(std::string)>;
 
     /**
@@ -93,6 +117,26 @@ class UserRepository {
      */
     void findUserByAccount(std::string account,
                            FindUserByAccountSuccess &&onSuccess,
+                           RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 按用户 ID 查询基础资料。
+     * @param userId 用户 ID。
+     * @param onSuccess 查询成功后的回调；若用户不存在则回调空值。
+     * @param onFailure 查询失败后的回调，参数为数据库错误文本。
+     */
+    void findUserById(std::string userId,
+                      FindUserByIdSuccess &&onSuccess,
+                      RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 更新用户资料中的可选字段。
+     * @param params 待更新的字段集合。
+     * @param onSuccess 更新成功后的回调，参数为更新后的用户资料。
+     * @param onFailure 更新失败后的回调，参数为数据库错误文本。
+     */
+    void updateUserProfile(UpdateUserProfileParams params,
+                           UpdateUserProfileSuccess &&onSuccess,
                            RepositoryFailure &&onFailure) const;
 
   private:

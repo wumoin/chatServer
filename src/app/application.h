@@ -1,7 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <cstdint>
 #include <string>
+
+namespace chatserver::storage {
+class FileStorage;
+}
 
 namespace chatserver::app {
 
@@ -18,11 +23,13 @@ class Application {
     /**
      * @brief 完成服务端启动前的最小配置装配。
      *
-     * 当前阶段会做四件事：
+     * 当前阶段会做六件事：
      * 1) 解析并校验 app.json 路径；
      * 2) 初始化统一日志模块；
-     * 3) 加载 Drogon 配置；
-     * 4) 注册 /health 健康检查接口。
+     * 3) 初始化认证安全基础设施；
+     * 4) 初始化默认文件存储；
+     * 5) 加载 Drogon 配置；
+     * 6) 注册 /health 健康检查接口。
      */
     void configure();
 
@@ -59,6 +66,16 @@ class Application {
     void initializeSecurity();
 
     /**
+     * @brief 初始化统一文件存储抽象。
+     *
+     * 当前阶段只落本地磁盘实现：
+     * 1) 从 `app.json` 读取 `chatserver.storage` 配置；
+     * 2) 自动创建上传根目录、临时目录、附件目录和头像目录；
+     * 3) 把默认文件存储实例注册到全局存储注册表。
+     */
+    void initializeStorage();
+
+    /**
      * @brief 加载 Drogon 配置文件。
      *
      * 这里假设配置文件路径已经由 `resolveConfigPath()` 解析完成。
@@ -74,6 +91,8 @@ class Application {
 
     // 当前实际加载的配置文件绝对路径。
     std::string configPath_;
+    // 当前默认文件存储实例。
+    std::shared_ptr<chatserver::storage::FileStorage> defaultStorage_;
 };
 
 }  // namespace chatserver::app

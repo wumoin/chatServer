@@ -33,8 +33,9 @@ CREATE TABLE users (
     -- 注册成功后可以直接返回给客户端使用。
     nickname VARCHAR(64) NOT NULL,
 
-    -- 头像地址。
-    -- 第一版允许为空，后续接文件上传后再逐步完善。
+    -- 头像存储 key。
+    -- 当前字段名仍沿用 avatar_url，但实际保存的是文件存储层的 storage key，
+    -- 例如 avatars/2026/03/16/avatar_xxx.png。
     avatar_url TEXT,
 
     -- 密码哈希。
@@ -109,7 +110,7 @@ COMMENT ON COLUMN users.account IS
 COMMENT ON COLUMN users.nickname IS
     '展示昵称，注册成功后直接返回给客户端。';
 COMMENT ON COLUMN users.avatar_url IS
-    '头像地址，当前允许为空。';
+    '头像 storage key，当前字段名沿用 avatar_url，但实际保存的是文件存储定位 key。';
 COMMENT ON COLUMN users.password_hash IS
     '密码哈希，不保存明文密码。';
 COMMENT ON COLUMN users.password_algo IS

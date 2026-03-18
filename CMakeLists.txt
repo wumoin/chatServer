@@ -124,11 +124,16 @@ add_executable(chatServer
     src/infra/log/app_logger.cpp
     src/infra/security/password_hasher.cpp
     src/infra/security/token_provider.cpp
+    src/storage/file_storage.cpp
+    src/storage/local_storage.cpp
     src/repository/device_session_repository.cpp
     src/repository/user_repository.cpp
+    src/service/avatar_service.cpp
     src/service/auth_service.cpp
+    src/service/user_service.cpp
     src/app/application.cpp
     src/transport/http/auth_controller.cpp
+    src/transport/http/user_controller.cpp
     src/main.cpp
 )
 

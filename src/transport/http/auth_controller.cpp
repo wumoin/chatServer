@@ -189,6 +189,10 @@ void AuthController::registerUser(
             {
                 statusCode = drogon::k400BadRequest;
             }
+            else if (error.code == protocol::error::ErrorCode::kNotFound)
+            {
+                statusCode = drogon::k404NotFound;
+            }
             else if (error.code ==
                      protocol::error::ErrorCode::kAccountAlreadyExists)
             {
