@@ -42,7 +42,7 @@ void WsSessionService::authenticateConnection(
     if (!tokenProvider.verifyAccessToken(request.accessToken, &claims))
     {
         CHATSERVER_LOG_WARN(kWsAuthLogTag)
-            << "ws.auth rejected because access token is invalid";
+            << "ws.auth 被拒绝，原因：访问令牌无效";
         onFailure(ServiceError{
             protocol::error::ErrorCode::kInvalidAccessToken,
             "invalid access token",
@@ -53,7 +53,7 @@ void WsSessionService::authenticateConnection(
     if (claims.expiresAtSec <= nowEpochSec())
     {
         CHATSERVER_LOG_WARN(kWsAuthLogTag)
-            << "ws.auth rejected because access token is expired";
+            << "ws.auth 被拒绝，原因：访问令牌已过期";
         onFailure(ServiceError{
             protocol::error::ErrorCode::kInvalidAccessToken,
             "invalid access token",
@@ -64,7 +64,7 @@ void WsSessionService::authenticateConnection(
     if (claims.deviceSessionId != request.deviceSessionId)
     {
         CHATSERVER_LOG_WARN(kWsAuthLogTag)
-            << "ws.auth rejected because device_session_id mismatches token claims";
+            << "ws.auth 被拒绝，原因：device_session_id 与访问令牌不匹配";
         onFailure(ServiceError{
             protocol::error::ErrorCode::kInvalidAccessToken,
             "invalid access token",
@@ -89,7 +89,7 @@ void WsSessionService::authenticateConnection(
             if (!sessionRecord.has_value())
             {
                 CHATSERVER_LOG_WARN(kWsAuthLogTag)
-                    << "ws.auth rejected because device session is not active";
+                    << "ws.auth 被拒绝，原因：设备会话不存在或已失效";
                 (*sharedFailure)(ServiceError{
                     protocol::error::ErrorCode::kInvalidAccessToken,
                     "invalid access token",
@@ -115,7 +115,7 @@ void WsSessionService::authenticateConnection(
         },
         [sharedFailure](std::string errorMessage) mutable {
             CHATSERVER_LOG_ERROR(kWsAuthLogTag)
-                << "ws.auth failed while querying active device session: "
+                << "ws.auth 失败，查询激活设备会话时发生错误："
                 << errorMessage;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,

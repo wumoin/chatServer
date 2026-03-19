@@ -141,7 +141,7 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
                         protocol::error::ErrorCode::kAccountAlreadyExists;
                     serviceError.message = "account already exists";
                     CHATSERVER_LOG_WARN(kAuthRegisterLogTag)
-                        << "register rejected because account already exists";
+                        << "注册被拒绝，原因：账号已存在";
                     break;
                 case repository::CreateUserErrorKind::kDatabaseError:
                 default:
@@ -149,7 +149,7 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
                         protocol::error::ErrorCode::kInternalError;
                     serviceError.message = "failed to create user";
                     CHATSERVER_LOG_ERROR(kAuthRegisterLogTag)
-                        << "register failed while inserting user: "
+                        << "注册失败，写入用户数据时发生错误："
                         << error.message;
                     break;
                 }
@@ -162,7 +162,7 @@ void AuthService::registerUser(protocol::dto::auth::RegisterRequest request,
         avatarService_.removeStorageKeyQuietly(confirmedAvatarStorageKey);
 
         CHATSERVER_LOG_ERROR(kAuthRegisterLogTag)
-            << "register failed before database insert: " << exception.what();
+            << "注册失败，在写入数据库前发生异常：" << exception.what();
 
         onFailure(ServiceError{
             protocol::error::ErrorCode::kInternalError,
@@ -199,7 +199,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
             if (!userRecord.has_value())
             {
                 CHATSERVER_LOG_WARN(kAuthLoginLogTag)
-                    << "login rejected because account does not exist";
+                    << "登录被拒绝，原因：账号不存在";
                 (*sharedFailure)(ServiceError{
                     protocol::error::ErrorCode::kInvalidCredentials,
                     "invalid credentials",
@@ -210,7 +210,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
             if (userRecord->accountStatus == "disabled")
             {
                 CHATSERVER_LOG_WARN(kAuthLoginLogTag)
-                    << "login rejected because account is disabled";
+                    << "登录被拒绝，原因：账号已被禁用";
                 (*sharedFailure)(ServiceError{
                     protocol::error::ErrorCode::kAccountDisabled,
                     "account disabled",
@@ -221,7 +221,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
             if (userRecord->accountStatus == "locked")
             {
                 CHATSERVER_LOG_WARN(kAuthLoginLogTag)
-                    << "login rejected because account is locked";
+                    << "登录被拒绝，原因：账号已被锁定";
                 (*sharedFailure)(ServiceError{
                     protocol::error::ErrorCode::kAccountLocked,
                     "account locked",
@@ -232,7 +232,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
             if (userRecord->passwordAlgo != "bcrypt")
             {
                 CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
-                    << "login failed because password algorithm is unsupported: "
+                    << "登录失败，原因：密码算法暂不支持，算法="
                     << userRecord->passwordAlgo;
                 (*sharedFailure)(ServiceError{
                     protocol::error::ErrorCode::kInternalError,
@@ -246,7 +246,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
                                                userRecord->passwordHash))
             {
                 CHATSERVER_LOG_WARN(kAuthLoginLogTag)
-                    << "login rejected because password does not match";
+                    << "登录被拒绝，原因：密码不匹配";
                 (*sharedFailure)(ServiceError{
                     protocol::error::ErrorCode::kInvalidCredentials,
                     "invalid credentials",
@@ -298,7 +298,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
                     [loginState, sharedSuccess](
                         repository::CreatedDeviceSessionRecord record) mutable {
                         CHATSERVER_LOG_INFO(kAuthLoginLogTag)
-                            << "login succeeded user_id="
+                            << "登录成功，user_id="
                             << loginState->user.userId
                             << " device_session_id="
                             << loginState->deviceSessionId;
@@ -311,7 +311,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
                                 kDeviceAlreadyLoggedIn)
                         {
                             CHATSERVER_LOG_WARN(kAuthLoginLogTag)
-                                << "login rejected because the device is already logged in";
+                                << "登录被拒绝，原因：当前设备已登录该账号";
                             (*sharedFailure)(ServiceError{
                                 protocol::error::ErrorCode::
                                     kDeviceAlreadyLoggedIn,
@@ -321,7 +321,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
                         }
 
                         CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
-                            << "login failed while creating device session: "
+                            << "登录失败，创建设备会话时发生错误："
                             << error.message;
                         (*sharedFailure)(ServiceError{
                             protocol::error::ErrorCode::kInternalError,
@@ -332,7 +332,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
             catch (const std::exception &exception)
             {
                 CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
-                    << "login failed before creating session: "
+                    << "登录失败，在创建设备会话前发生异常："
                     << exception.what();
                 (*sharedFailure)(ServiceError{
                     protocol::error::ErrorCode::kInternalError,
@@ -342,7 +342,7 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kAuthLoginLogTag)
-                << "login failed while querying user: " << message;
+                << "登录失败，查询用户信息时发生错误：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query user",
@@ -376,7 +376,7 @@ void AuthService::logoutUser(std::string accessToken,
     if (!tokenProvider.verifyAccessToken(accessToken, &claims))
     {
         CHATSERVER_LOG_WARN(kAuthLogoutLogTag)
-            << "logout rejected because access token verification failed";
+            << "登出被拒绝，原因：access token 校验失败";
         (*sharedFailure)(ServiceError{
             protocol::error::ErrorCode::kInvalidAccessToken,
             "invalid access token",
@@ -404,7 +404,7 @@ void AuthService::logoutUser(std::string accessToken,
                 repository::RevokeDeviceSessionStatus::kNotFound)
             {
                 CHATSERVER_LOG_WARN(kAuthLogoutLogTag)
-                    << "logout rejected because device session was not found"
+                    << "登出被拒绝，原因：未找到对应设备会话"
                     << " user_id=" << claims.userId
                     << " device_session_id=" << claims.deviceSessionId;
                 (*sharedFailure)(ServiceError{
@@ -418,13 +418,13 @@ void AuthService::logoutUser(std::string accessToken,
                 repository::RevokeDeviceSessionStatus::kRevoked)
             {
                 CHATSERVER_LOG_INFO(kAuthLogoutLogTag)
-                    << "logout succeeded user_id=" << claims.userId
+                    << "登出成功，user_id=" << claims.userId
                     << " device_session_id=" << claims.deviceSessionId;
             }
             else
             {
                 CHATSERVER_LOG_INFO(kAuthLogoutLogTag)
-                    << "logout treated as idempotent success for inactive session"
+                    << "登出按幂等成功处理，目标会话当前已非激活状态"
                     << " user_id=" << claims.userId
                     << " device_session_id=" << claims.deviceSessionId;
             }
@@ -435,7 +435,7 @@ void AuthService::logoutUser(std::string accessToken,
          sharedFailure](
             repository::RevokeDeviceSessionError error) mutable {
             CHATSERVER_LOG_ERROR(kAuthLogoutLogTag)
-                << "logout failed while revoking device session: "
+                << "登出失败，撤销设备会话时发生错误："
                 << error.message
                 << " user_id=" << claims.userId
                 << " device_session_id=" << claims.deviceSessionId;

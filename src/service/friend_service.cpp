@@ -197,7 +197,7 @@ void FriendService::sendFriendRequest(
                          sharedSuccess](
                             repository::FriendRequestRecord record) mutable {
                             CHATSERVER_LOG_INFO(kFriendRequestLogTag)
-                                << "friend request created request_id="
+                                << "好友申请创建成功，request_id="
                                 << record.requestId;
                             (*sharedSuccess)(
                                 toFriendRequestItemView(record, *targetUser));
@@ -224,7 +224,7 @@ void FriendService::sendFriendRequest(
                 },
                 [sharedFailure](std::string message) mutable {
                     CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                        << "failed to query friendship: " << message;
+                        << "查询好友关系失败：" << message;
                     (*sharedFailure)(ServiceError{
                         protocol::error::ErrorCode::kInternalError,
                         "failed to query friendship",
@@ -233,7 +233,7 @@ void FriendService::sendFriendRequest(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                << "failed to query target user: " << message;
+                << "查询目标用户失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query target user",
@@ -352,7 +352,7 @@ void FriendService::acceptFriendRequest(std::string requestId,
                         },
                         [sharedFailure](std::string message) mutable {
                             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                                << "failed to accept friend request: " << message;
+                                << "同意好友申请失败：" << message;
                             (*sharedFailure)(ServiceError{
                                 protocol::error::ErrorCode::kInternalError,
                                 "failed to accept friend request",
@@ -361,7 +361,7 @@ void FriendService::acceptFriendRequest(std::string requestId,
                 },
                 [sharedFailure](std::string message) mutable {
                     CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                        << "failed to query requester user: " << message;
+                        << "查询申请发起人失败：" << message;
                     (*sharedFailure)(ServiceError{
                         protocol::error::ErrorCode::kInternalError,
                         "failed to query requester user",
@@ -370,7 +370,7 @@ void FriendService::acceptFriendRequest(std::string requestId,
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                << "failed to query friend request: " << message;
+                << "查询好友申请失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query friend request",
@@ -489,7 +489,7 @@ void FriendService::rejectFriendRequest(std::string requestId,
                         },
                         [sharedFailure](std::string message) mutable {
                             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                                << "failed to reject friend request: " << message;
+                                << "拒绝好友申请失败：" << message;
                             (*sharedFailure)(ServiceError{
                                 protocol::error::ErrorCode::kInternalError,
                                 "failed to reject friend request",
@@ -498,7 +498,7 @@ void FriendService::rejectFriendRequest(std::string requestId,
                 },
                 [sharedFailure](std::string message) mutable {
                     CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                        << "failed to query requester user: " << message;
+                        << "查询申请发起人失败：" << message;
                     (*sharedFailure)(ServiceError{
                         protocol::error::ErrorCode::kInternalError,
                         "failed to query requester user",
@@ -507,7 +507,7 @@ void FriendService::rejectFriendRequest(std::string requestId,
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                << "failed to query friend request: " << message;
+                << "查询好友申请失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query friend request",
@@ -547,7 +547,7 @@ void FriendService::listIncomingFriendRequests(std::string accessToken,
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                << "failed to list incoming friend requests: " << message;
+                << "查询收到的好友申请失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to list incoming friend requests",
@@ -587,7 +587,7 @@ void FriendService::listOutgoingFriendRequests(std::string accessToken,
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                << "failed to list outgoing friend requests: " << message;
+                << "查询已发送的好友申请失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to list outgoing friend requests",
@@ -627,7 +627,7 @@ void FriendService::listFriends(std::string accessToken,
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
-                << "failed to list friends: " << message;
+                << "查询好友列表失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to list friends",

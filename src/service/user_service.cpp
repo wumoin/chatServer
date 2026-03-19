@@ -67,7 +67,7 @@ void UserService::uploadTemporaryAvatar(TemporaryAvatarUploadRequest request,
     }
 
     CHATSERVER_LOG_INFO(kAvatarUploadLogTag)
-        << "temporary avatar uploaded key=" << result.avatarUploadKey;
+        << "临时头像上传成功，avatar_upload_key=" << result.avatarUploadKey;
     onSuccess(std::move(result));
 }
 
@@ -132,7 +132,7 @@ void UserService::searchUserByAccount(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kUserSearchLogTag)
-                << "failed to search user by account: " << message;
+                << "按账号搜索用户失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to search user",
@@ -226,7 +226,7 @@ void UserService::updateProfile(
                     }
 
                     CHATSERVER_LOG_INFO(kUserProfileLogTag)
-                        << "profile updated user_id=" << record.userId;
+                        << "用户资料更新成功，user_id=" << record.userId;
                     (*sharedSuccess)(toUserProfileView(record));
                 },
                 [confirmedAvatarStorageKey,
@@ -234,7 +234,7 @@ void UserService::updateProfile(
                  this](std::string message) mutable {
                     avatarService_.removeStorageKeyQuietly(confirmedAvatarStorageKey);
                     CHATSERVER_LOG_ERROR(kUserProfileLogTag)
-                        << "failed to update profile: " << message;
+                        << "更新用户资料失败：" << message;
                     (*sharedFailure)(ServiceError{
                         protocol::error::ErrorCode::kInternalError,
                         "failed to update user profile",
@@ -243,7 +243,7 @@ void UserService::updateProfile(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kUserProfileLogTag)
-                << "failed to query current user: " << message;
+                << "查询当前用户信息失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query user",
@@ -292,7 +292,7 @@ void UserService::getUserAvatarFile(std::string userId,
         },
         [onFailure = std::move(onFailure)](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kUserProfileLogTag)
-                << "failed to query user avatar: " << message;
+                << "查询用户头像失败：" << message;
             onFailure(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query user",

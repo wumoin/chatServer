@@ -157,7 +157,7 @@ void ConversationService::createOrFindPrivateConversation(
                                 },
                                 [sharedFailure](std::string message) mutable {
                                     CHATSERVER_LOG_ERROR(kConversationLogTag)
-                                        << "failed to load direct conversation: "
+                                        << "加载私聊会话详情失败："
                                         << message;
                                     (*sharedFailure)(ServiceError{
                                         protocol::error::ErrorCode::kInternalError,
@@ -167,7 +167,7 @@ void ConversationService::createOrFindPrivateConversation(
                         },
                         [sharedFailure](std::string message) mutable {
                             CHATSERVER_LOG_ERROR(kConversationLogTag)
-                                << "failed to create or find direct conversation: "
+                                << "创建或复用私聊会话失败："
                                 << message;
                             (*sharedFailure)(ServiceError{
                                 protocol::error::ErrorCode::kInternalError,
@@ -177,7 +177,7 @@ void ConversationService::createOrFindPrivateConversation(
                 },
                 [sharedFailure](std::string message) mutable {
                     CHATSERVER_LOG_ERROR(kConversationLogTag)
-                        << "failed to query friendship for direct conversation: "
+                        << "查询私聊好友关系失败："
                         << message;
                     (*sharedFailure)(ServiceError{
                         protocol::error::ErrorCode::kInternalError,
@@ -187,7 +187,7 @@ void ConversationService::createOrFindPrivateConversation(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kConversationLogTag)
-                << "failed to query peer user: " << message;
+                << "查询会话对端用户失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query peer user",
@@ -224,7 +224,7 @@ void ConversationService::listConversations(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kConversationLogTag)
-                << "failed to list conversations: " << message;
+                << "查询会话列表失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to list conversations",
@@ -276,7 +276,7 @@ void ConversationService::getConversationDetail(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kConversationLogTag)
-                << "failed to query conversation detail: " << message;
+                << "查询会话详情失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query conversation detail",
@@ -369,7 +369,7 @@ void ConversationService::listMessages(
                 },
                 [sharedFailure](std::string message) mutable {
                     CHATSERVER_LOG_ERROR(kConversationLogTag)
-                        << "failed to list messages: " << message;
+                        << "查询历史消息失败：" << message;
                     (*sharedFailure)(ServiceError{
                         protocol::error::ErrorCode::kInternalError,
                         "failed to list messages",
@@ -378,7 +378,7 @@ void ConversationService::listMessages(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kConversationLogTag)
-                << "failed to query conversation membership: " << message;
+                << "查询会话成员关系失败：" << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query conversation membership",
@@ -475,7 +475,7 @@ void ConversationService::sendTextMessage(
                 },
                 [sharedFailure](std::string message) mutable {
                     CHATSERVER_LOG_ERROR(kConversationLogTag)
-                        << "failed to create text message: " << message;
+                        << "发送文本消息失败：" << message;
                     (*sharedFailure)(ServiceError{
                         protocol::error::ErrorCode::kInternalError,
                         "failed to create message",
@@ -484,7 +484,7 @@ void ConversationService::sendTextMessage(
         },
         [sharedFailure](std::string message) mutable {
             CHATSERVER_LOG_ERROR(kConversationLogTag)
-                << "failed to query conversation before send message: "
+                << "发送消息前查询会话信息失败："
                 << message;
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,

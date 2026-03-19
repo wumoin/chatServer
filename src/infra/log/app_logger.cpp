@@ -10,6 +10,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace chatserver::infra::log {
 namespace {
@@ -43,6 +44,35 @@ struct LogState
 };
 
 LogState g_logState;
+
+/**
+ * @brief 将 Trantor 默认英文日志级别替换为中文显示。
+ * @param line 已格式化的一行日志文本。
+ * @return 替换级别文本后的日志行。
+ */
+std::string localizeLevelText(std::string line)
+{
+    const std::pair<std::string_view, std::string_view> replacements[] = {
+        {" TRACE ", " 跟踪 "},
+        {" DEBUG ", " 调试 "},
+        {" INFO ", " 信息 "},
+        {" WARN ", " 警告 "},
+        {" ERROR ", " 错误 "},
+        {" FATAL ", " 致命 "},
+    };
+
+    for (const auto &[from, to] : replacements)
+    {
+        const auto position = line.find(from);
+        if (position != std::string::npos)
+        {
+            line.replace(position, from.size(), to);
+            break;
+        }
+    }
+
+    return line;
+}
 
 /**
  * @brief 判断 JSON 字段是否存在且不是 null。
@@ -277,19 +307,24 @@ void writeLogMessage(const char *message, const uint64_t length)
 {
     std::lock_guard<std::mutex> lock(g_logState.writeMutex);
     const std::string prefix = "[" + g_logState.appName + "] ";
+    const std::string localizedMessage =
+        localizeLevelText(std::string(message, static_cast<std::size_t>(length)));
 
     if (g_logState.enableConsole)
     {
         std::cout.write(prefix.data(),
                         static_cast<std::streamsize>(prefix.size()));
-        std::cout.write(message, static_cast<std::streamsize>(length));
+        std::cout.write(localizedMessage.data(),
+                        static_cast<std::streamsize>(localizedMessage.size()));
     }
 
     if (g_logState.enableFile && g_logState.fileStream.is_open())
     {
         g_logState.fileStream.write(prefix.data(),
                                     static_cast<std::streamsize>(prefix.size()));
-        g_logState.fileStream.write(message, static_cast<std::streamsize>(length));
+        g_logState.fileStream.write(
+            localizedMessage.data(),
+            static_cast<std::streamsize>(localizedMessage.size()));
     }
 }
 

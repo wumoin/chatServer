@@ -73,7 +73,7 @@ bool AvatarService::uploadTemporaryAvatar(
     catch (const std::exception &exception)
     {
         CHATSERVER_LOG_ERROR(kAvatarLogTag)
-            << "failed to save temporary avatar: " << exception.what();
+            << "保存临时头像失败：" << exception.what();
         error.code = protocol::error::ErrorCode::kInternalError;
         error.message = "failed to save temporary avatar";
         return false;
@@ -115,7 +115,7 @@ bool AvatarService::confirmAvatarUploadKey(const std::string &avatarUploadKey,
     catch (const std::exception &exception)
     {
         CHATSERVER_LOG_ERROR(kAvatarLogTag)
-            << "failed to confirm avatar upload key: " << exception.what();
+            << "确认 avatar_upload_key 失败：" << exception.what();
         error.code = protocol::error::ErrorCode::kInternalError;
         error.message = "failed to confirm avatar upload key";
         return false;
@@ -156,7 +156,7 @@ bool AvatarService::resolveStoredAvatarPath(const std::string &avatarStorageKey,
     catch (const std::exception &exception)
     {
         CHATSERVER_LOG_ERROR(kAvatarLogTag)
-            << "failed to resolve avatar path: " << exception.what();
+            << "解析头像文件路径失败：" << exception.what();
         error.code = protocol::error::ErrorCode::kInternalError;
         error.message = "failed to resolve avatar path";
         return false;
@@ -178,7 +178,7 @@ void AvatarService::removeStorageKeyQuietly(const std::string &storageKey) const
     catch (const std::exception &exception)
     {
         CHATSERVER_LOG_WARN(kAvatarLogTag)
-            << "failed to cleanup storage key " << storageKey << ": "
+            << "清理存储键失败，storage_key=" << storageKey << "，原因："
             << exception.what();
     }
 }

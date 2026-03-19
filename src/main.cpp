@@ -29,11 +29,11 @@ int main()
         if (chatserver::infra::log::AppLogger::isInitialized())
         {
             CHATSERVER_LOG_FATAL("bootstrap")
-                << "chatServer failed to start: " << ex.what();
+                << "chatServer 启动失败：" << ex.what();
         }
         else
         {
-            std::cerr << "chatServer failed to start: " << ex.what() << '\n';
+            std::cerr << "chatServer 启动失败：" << ex.what() << '\n';
         }
         return 1;
     }

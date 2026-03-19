@@ -41,7 +41,7 @@ bool parseJsonMessage(const std::string &message,
                                   &errors);
     if (!ok)
     {
-        errorMessage = errors.empty() ? "invalid websocket json body" : errors;
+        errorMessage = errors.empty() ? "websocket JSON 消息体无效" : errors;
     }
 
     return ok;
@@ -87,8 +87,8 @@ void ChatWsController::handleNewConnection(
     }
 
     CHATSERVER_LOG_INFO(kWsLogTag)
-        << "websocket connected from " << request->peerAddr().toIpPort()
-        << ", waiting for ws.auth";
+        << "实时通道已建立连接，来源=" << request->peerAddr().toIpPort()
+        << "，等待 ws.auth";
 }
 
 void ChatWsController::handleNewMessage(
@@ -101,14 +101,20 @@ void ChatWsController::handleNewMessage(
         return;
     }
 
+    if (type == drogon::WebSocketMessageType::Ping ||
+        type == drogon::WebSocketMessageType::Pong)
+    {
+        return;
+    }
+
     if (type != drogon::WebSocketMessageType::Text)
     {
         sendError(connection,
                   "",
                   protocol::error::ErrorCode::kInvalidArgument,
-                  "only text websocket messages are supported");
+                  "仅支持文本类型的业务消息");
         connection->shutdown(drogon::CloseCode::kInvalidMessage,
-                             "only text websocket messages are supported");
+                             "仅支持文本类型的业务消息");
         return;
     }
 
@@ -117,13 +123,13 @@ void ChatWsController::handleNewMessage(
     if (!parseJsonMessage(message, json, parseError))
     {
         CHATSERVER_LOG_WARN(kWsLogTag)
-            << "websocket rejected invalid json message: " << parseError;
+            << "实时通道收到无效 JSON 消息，原因：" << parseError;
         sendError(connection,
                   "",
                   protocol::error::ErrorCode::kInvalidArgument,
-                  "invalid websocket json body");
+                  "websocket JSON 消息体无效");
         connection->shutdown(drogon::CloseCode::kWrongMessageContent,
-                             "invalid websocket json body");
+                             "websocket JSON 消息体无效");
         return;
     }
 
@@ -131,13 +137,13 @@ void ChatWsController::handleNewMessage(
     if (!protocol::dto::ws::parseWsEnvelope(json, envelope, parseError))
     {
         CHATSERVER_LOG_WARN(kWsLogTag)
-            << "websocket rejected invalid envelope: " << parseError;
+            << "实时通道收到无效信封消息，原因：" << parseError;
         sendError(connection,
                   "",
                   protocol::error::ErrorCode::kInvalidArgument,
                   parseError);
         connection->shutdown(drogon::CloseCode::kWrongMessageContent,
-                             "invalid websocket envelope");
+                             "websocket 信封无效");
         return;
     }
 
@@ -148,7 +154,7 @@ void ChatWsController::handleNewMessage(
             sendError(connection,
                       envelope.requestId,
                       protocol::error::ErrorCode::kInvalidArgument,
-                      "websocket connection is already authenticated");
+                      "当前 WebSocket 连接已完成认证");
             return;
         }
 
@@ -162,7 +168,7 @@ void ChatWsController::handleNewMessage(
                       protocol::error::ErrorCode::kInvalidArgument,
                       parseError);
             connection->shutdown(drogon::CloseCode::kViolation,
-                                 "invalid ws.auth payload");
+                                 "ws.auth 载荷无效");
             return;
         }
 
@@ -187,7 +193,7 @@ void ChatWsController::handleNewMessage(
                 payload.deviceSessionId = std::move(context.deviceSessionId);
 
                 CHATSERVER_LOG_INFO(kWsLogTag)
-                    << "ws.auth accepted for device_session_id="
+                    << "ws.auth 已通过，device_session_id="
                     << payload.deviceSessionId;
 
                 sendEnvelope(connection,
@@ -213,32 +219,46 @@ void ChatWsController::handleNewMessage(
         sendError(connection,
                   envelope.requestId,
                   protocol::error::ErrorCode::kInvalidAccessToken,
-                  "websocket connection is not authenticated");
+                  "当前 WebSocket 连接尚未完成认证");
         connection->shutdown(drogon::CloseCode::kViolation,
-                             "websocket connection is not authenticated");
-        return;
-    }
-
-    if (envelope.type == "ping")
-    {
-        sendEnvelope(connection,
-                     "pong",
-                     envelope.requestId,
-                     Json::Value(Json::objectValue));
+                             "当前 WebSocket 连接尚未完成认证");
         return;
     }
 
     sendError(connection,
               envelope.requestId,
               protocol::error::ErrorCode::kInvalidArgument,
-              "unsupported websocket event type");
+              "暂不支持该 WebSocket 事件类型");
 }
 
 void ChatWsController::handleConnectionClosed(
     const drogon::WebSocketConnectionPtr &connection)
 {
+    const auto context = wsSessionService_.connectionContext(connection);
+    const std::string peerAddress =
+        connection != nullptr ? connection->peerAddr().toIpPort() : "";
+    const bool wasConnected =
+        connection != nullptr ? connection->connected() : false;
+    const bool wasDisconnected =
+        connection != nullptr ? connection->disconnected() : false;
+
     wsSessionService_.handleConnectionClosed(connection);
-    CHATSERVER_LOG_INFO(kWsLogTag) << "websocket connection closed";
+    if (context.has_value())
+    {
+        CHATSERVER_LOG_INFO(kWsLogTag)
+            << "实时通道连接已关闭，来源=" << peerAddress
+            << " user_id=" << context->userId
+            << " device_session_id=" << context->deviceSessionId
+            << " device_id=" << context->deviceId
+            << " connected=" << wasConnected
+            << " disconnected=" << wasDisconnected;
+        return;
+    }
+
+    CHATSERVER_LOG_INFO(kWsLogTag)
+        << "实时通道匿名连接已关闭，来源=" << peerAddress
+        << " connected=" << wasConnected
+        << " disconnected=" << wasDisconnected;
 }
 
 }  // namespace chatserver::transport::ws

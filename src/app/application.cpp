@@ -60,32 +60,32 @@ void Application::run()
     // 3. PostgreSQL / Redis 客户端都由 app.json 中的配置创建；
     // 4. 健康检查路径固定为 /health。
     CHATSERVER_LOG_INFO(kBootstrapLogTag)
-        << "config loaded from " << configPath_;
+        << "已加载配置文件：" << configPath_;
 
     const auto &logFilePath = infra::log::AppLogger::logFilePath();
     if (!logFilePath.empty())
     {
         CHATSERVER_LOG_INFO(kBootstrapLogTag)
-            << "file log enabled at " << logFilePath;
+            << "已启用文件日志，路径：" << logFilePath;
     }
     else
     {
         CHATSERVER_LOG_INFO(kBootstrapLogTag)
-            << "file log disabled, console logging only";
+            << "未启用文件日志，仅输出到控制台";
     }
 
     CHATSERVER_LOG_INFO(kBootstrapLogTag)
-        << "PostgreSQL client[" << kDbClientName << "] configured via app.json";
+        << "PostgreSQL 客户端[" << kDbClientName << "] 已通过 app.json 完成配置";
     CHATSERVER_LOG_INFO(kBootstrapLogTag)
-        << "Redis client[" << kRedisClientName << "] configured via app.json";
+        << "Redis 客户端[" << kRedisClientName << "] 已通过 app.json 完成配置";
     if (storage::StorageRegistry::hasDefaultStorage())
     {
         const auto storage = storage::StorageRegistry::defaultStorage();
         CHATSERVER_LOG_INFO(kBootstrapLogTag)
-            << "storage provider[" << storage->providerName()
-            << "] ready " << storage->debugDescription();
+            << "存储提供者[" << storage->providerName()
+            << "] 已就绪，" << storage->debugDescription();
     }
-    CHATSERVER_LOG_INFO(kBootstrapLogTag) << "bootstrap ready on /health";
+    CHATSERVER_LOG_INFO(kBootstrapLogTag) << "启动装配完成，健康检查地址：/health";
 
     // 进入 Drogon 主事件循环。
     // 从这一行开始，监听、连接管理、路由分发和数据库客户端生命周期都交给框架接管。
