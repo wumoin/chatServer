@@ -26,6 +26,18 @@ std::string IdGenerator::nextFriendRequestId() const
     return buildPrefixedId("fr_", 24);
 }
 
+std::string IdGenerator::nextConversationId() const
+{
+    // conversations.conversation_id 当前统一走 `c_` 前缀。
+    return buildPrefixedId("c_", 24);
+}
+
+std::string IdGenerator::nextMessageId() const
+{
+    // messages.message_id 当前统一走 `m_` 前缀。
+    return buildPrefixedId("m_", 24);
+}
+
 std::string IdGenerator::buildPrefixedId(const std::string &prefix,
                                          const std::size_t payloadLength) const
 {

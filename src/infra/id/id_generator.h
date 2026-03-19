@@ -29,6 +29,18 @@ class IdGenerator {
      */
     std::string nextFriendRequestId() const;
 
+    /**
+     * @brief 生成新的会话业务主键。
+     * @return 格式为 `c_` + 24 位十六进制字符的会话 ID。
+     */
+    std::string nextConversationId() const;
+
+    /**
+     * @brief 生成新的消息业务主键。
+     * @return 格式为 `m_` + 24 位十六进制字符的消息 ID。
+     */
+    std::string nextMessageId() const;
+
   private:
     /**
      * @brief 生成带业务前缀的字符串 ID。
