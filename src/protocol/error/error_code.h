@@ -24,10 +24,18 @@ enum class ErrorCode : int {
     kAccountAlreadyExists = 40901,
     // 当前设备已有活跃登录会话。
     kDeviceAlreadyLoggedIn = 40902,
+    // 目标用户已经是当前用户的好友。
+    kFriendAlreadyExists = 40903,
+    // 当前用户和目标用户之间已有待处理的好友申请。
+    kFriendRequestAlreadyPending = 40904,
+    // 好友申请已经被处理，不能再次同意或拒绝。
+    kFriendRequestAlreadyHandled = 40905,
     // 账号已被禁用。
     kAccountDisabled = 40301,
     // 账号已被锁定。
     kAccountLocked = 40302,
+    // 当前用户无权操作目标资源。
+    kForbidden = 40300,
     // 未归类的服务端内部错误。
     kInternalError = 50000,
 };
@@ -59,10 +67,18 @@ inline const char *defaultMessage(const ErrorCode code)
         return "account already exists";
     case ErrorCode::kDeviceAlreadyLoggedIn:
         return "device already logged in";
+    case ErrorCode::kFriendAlreadyExists:
+        return "friend already exists";
+    case ErrorCode::kFriendRequestAlreadyPending:
+        return "friend request already pending";
+    case ErrorCode::kFriendRequestAlreadyHandled:
+        return "friend request already handled";
     case ErrorCode::kAccountDisabled:
         return "account disabled";
     case ErrorCode::kAccountLocked:
         return "account locked";
+    case ErrorCode::kForbidden:
+        return "forbidden";
     case ErrorCode::kInternalError:
     default:
         return "internal server error";

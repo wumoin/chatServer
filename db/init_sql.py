@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
-"""认证域初始化迁移入口。
+"""基础域初始化迁移入口。
 
 作用：
 1. 从 chatServer/config/app.json 中读取 PostgreSQL 连接信息；
-2. 按固定顺序执行认证域拆分后的 SQL 脚本；
+2. 按固定顺序执行基础域拆分后的 SQL 脚本；
 3. 用一个事务包住整批 DDL，避免迁移执行到一半留下半成品结构。
 
 为什么改成 Python：
@@ -15,7 +15,8 @@
 默认行为：
 - 默认读取 chatServer/config/app.json；
 - 默认读取名为 default 的 db_client；
-- 只执行 init_sql/ 目录下这批认证域脚本。
+- 执行 init_sql/ 目录下当前已落地的基础表结构脚本，
+  现阶段已覆盖认证域和好友关系域的最小表结构。
 
 可选参数：
 - --config：覆盖 app.json 路径；
@@ -33,6 +34,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,10 +43,49 @@ SCRIPT_PATH = Path(__file__).resolve()
 MIGRATION_DIR = SCRIPT_PATH.parent / "init_sql"
 DEFAULT_APP_CONFIG = SCRIPT_PATH.parents[1] / "config" / "app.json"
 DEFAULT_DB_CLIENT_NAME = "default"
-MIGRATION_FILES = (
-    MIGRATION_DIR / "0000_set_updated_at_function.sql",
-    MIGRATION_DIR / "0001_users.sql",
-    MIGRATION_DIR / "0002_device_sessions.sql",
+
+
+@dataclass(frozen=True)
+class MigrationStep:
+    """描述一个可独立跳过的迁移步骤。"""
+
+    path: Path
+    object_kind: str
+    object_name: str
+    exists_sql: str
+
+
+MIGRATION_STEPS = (
+    MigrationStep(
+        path=MIGRATION_DIR / "0000_set_updated_at_function.sql",
+        object_kind="function",
+        object_name="set_updated_at()",
+        exists_sql="SELECT to_regprocedure('set_updated_at()') IS NOT NULL;",
+    ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0001_users.sql",
+        object_kind="table",
+        object_name="users",
+        exists_sql="SELECT to_regclass('users') IS NOT NULL;",
+    ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0002_device_sessions.sql",
+        object_kind="table",
+        object_name="device_sessions",
+        exists_sql="SELECT to_regclass('device_sessions') IS NOT NULL;",
+    ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0003_friend_requests.sql",
+        object_kind="table",
+        object_name="friend_requests",
+        exists_sql="SELECT to_regclass('friend_requests') IS NOT NULL;",
+    ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0004_friendships.sql",
+        object_kind="table",
+        object_name="friendships",
+        exists_sql="SELECT to_regclass('friendships') IS NOT NULL;",
+    ),
 )
 
 
@@ -55,7 +96,7 @@ def fail(message: str) -> "NoReturn":
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Read chatServer/config/app.json and run auth migration SQL files.",
+        description="Read chatServer/config/app.json and run base schema migration SQL files.",
     )
     parser.add_argument(
         "--config",
@@ -162,7 +203,11 @@ def validate_migration_files() -> None:
     if not MIGRATION_DIR.is_dir():
         fail(f"migration directory not found: {MIGRATION_DIR}")
 
-    missing_files = [str(path) for path in MIGRATION_FILES if not path.is_file()]
+    missing_files = [
+        str(step.path)
+        for step in MIGRATION_STEPS
+        if not step.path.is_file()
+    ]
     if missing_files:
         fail(f"migration files not found: {', '.join(missing_files)}")
 
@@ -196,20 +241,78 @@ def build_psql_env(db_client: dict[str, Any]) -> tuple[dict[str, str], str]:
     return env, db_name
 
 
-def build_psql_script() -> str:
+def run_psql_query(env: dict[str, str], sql: str) -> str:
+    """执行一条简单查询，并返回去掉首尾空白后的文本结果。"""
+
+    try:
+        completed = subprocess.run(
+            ["psql", "-tA", "-c", sql],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    except FileNotFoundError:
+        fail("required command not found: psql")
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip()
+        if stderr:
+            print(stderr, file=sys.stderr)
+        raise SystemExit(exc.returncode) from exc
+
+    return completed.stdout.strip()
+
+
+def collect_pending_steps(env: dict[str, str]) -> list[MigrationStep]:
+    """筛出本次真正需要执行的迁移步骤。
+
+    规则：
+    1. 目标对象已存在，则跳过对应 SQL 文件；
+    2. 目标对象不存在，则加入本次待执行列表；
+    3. 只对待执行列表再开启事务，保证剩余步骤仍然原子提交。
+    """
+
+    pending_steps: list[MigrationStep] = []
+
+    for step in MIGRATION_STEPS:
+        exists_result = run_psql_query(env, step.exists_sql).lower()
+        exists = exists_result in {"t", "true", "1", "on", "yes"}
+        if exists:
+            print(
+                f"Skip {step.object_kind} [{step.object_name}] "
+                f"because it already exists.",
+                flush=True,
+            )
+            continue
+
+        print(
+            f"Queue {step.object_kind} [{step.object_name}] "
+            f"from [{step.path.name}].",
+            flush=True,
+        )
+        pending_steps.append(step)
+
+    return pending_steps
+
+
+def build_psql_script(steps: list[MigrationStep]) -> str:
     lines = ["\\set ON_ERROR_STOP on", "BEGIN;"]
-    for path in MIGRATION_FILES:
-        lines.append(f"\\i {path}")
+    for step in steps:
+        lines.append(f"\\i {step.path}")
     lines.append("COMMIT;")
     lines.append("")
     return "\n".join(lines)
 
 
-def run_migrations(env: dict[str, str]) -> None:
+def run_migrations(env: dict[str, str], steps: list[MigrationStep]) -> None:
+    if not steps:
+        print("No pending migration steps. Database schema is already up to date.", flush=True)
+        return
+
     try:
         subprocess.run(
             ["psql", "-v", "ON_ERROR_STOP=1"],
-            input=build_psql_script(),
+            input=build_psql_script(steps),
             text=True,
             check=True,
             env=env,
@@ -230,12 +333,13 @@ def main() -> int:
     db_client_name = str(db_client.get("name") or DEFAULT_DB_CLIENT_NAME)
 
     print(
-        "Running auth migrations with "
+        "Running base schema migrations with "
         f"db_client[{db_client_name}] on database [{db_name}].",
         flush=True,
     )
-    run_migrations(env)
-    print("Auth migrations completed successfully.", flush=True)
+    pending_steps = collect_pending_steps(env)
+    run_migrations(env, pending_steps)
+    print("Base schema migrations completed successfully.", flush=True)
     return 0
 
 

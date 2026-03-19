@@ -19,6 +19,15 @@ struct UserProfileView
 };
 
 /**
+ * @brief 按账号搜索用户时返回的结果视图。
+ */
+struct UserSearchResultView
+{
+    bool exists{false};
+    std::optional<UserProfileView> user;
+};
+
+/**
  * @brief 更新用户资料请求。
  *
  * 这里使用显式的 `hasXxx` 标志位区分：
@@ -97,6 +106,22 @@ inline Json::Value toJson(const UserProfileView &user)
     if (user.avatarUrl.has_value())
     {
         json["avatar_url"] = *user.avatarUrl;
+    }
+    return json;
+}
+
+/**
+ * @brief 把用户搜索结果转换成 JSON 对象。
+ * @param result 用户搜索结果视图。
+ * @return 可直接放入 HTTP 响应 `data` 的 JSON 对象。
+ */
+inline Json::Value toJson(const UserSearchResultView &result)
+{
+    Json::Value json(Json::objectValue);
+    json["exists"] = result.exists;
+    if (result.user.has_value())
+    {
+        json["user"] = toJson(*result.user);
     }
     return json;
 }

@@ -56,6 +56,17 @@ WHERE user_id = $1
 LIMIT 1
 )SQL";
 
+constexpr auto kFindUserProfileByAccountSql = R"SQL(
+SELECT
+    user_id,
+    account,
+    nickname,
+    avatar_url
+FROM users
+WHERE account = $1
+LIMIT 1
+)SQL";
+
 constexpr auto kUpdateUserProfileSql = R"SQL(
 UPDATE users
 SET
@@ -260,6 +271,49 @@ void UserRepository::findUserById(std::string userId,
                 onFailure(exception.base().what());
             },
             std::move(userId));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
+    }
+}
+
+void UserRepository::findUserProfileByAccount(
+    std::string account,
+    FindUserProfileByAccountSuccess &&onSuccess,
+    RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+
+        client->execSqlAsync(
+            kFindUserProfileByAccountSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                if (rows.empty())
+                {
+                    onSuccess(std::nullopt);
+                    return;
+                }
+
+                const auto &row = rows[0];
+                UserProfileRecord record;
+                record.userId = row["user_id"].as<std::string>();
+                record.account = row["account"].as<std::string>();
+                record.nickname = row["nickname"].as<std::string>();
+                if (!row["avatar_url"].isNull())
+                {
+                    record.avatarUrl = row["avatar_url"].as<std::string>();
+                }
+
+                onSuccess(std::move(record));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            std::move(account));
     }
     catch (const std::exception &exception)
     {

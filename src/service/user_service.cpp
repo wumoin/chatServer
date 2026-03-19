@@ -13,6 +13,7 @@ namespace {
 
 constexpr auto kUserProfileLogTag = "user.profile";
 constexpr auto kAvatarUploadLogTag = "user.avatar";
+constexpr auto kUserSearchLogTag = "user.search";
 
 std::string trimCopy(const std::string_view input)
 {
@@ -32,6 +33,12 @@ std::string trimCopy(const std::string_view input)
     }
 
     return std::string(input.substr(begin, end - begin));
+}
+
+bool isAccountCharacterAllowed(const char ch)
+{
+    const unsigned char value = static_cast<unsigned char>(ch);
+    return std::isalnum(value) != 0 || ch == '_' || ch == '.' || ch == '-';
 }
 
 protocol::dto::user::UserProfileView toUserProfileView(
@@ -62,6 +69,75 @@ void UserService::uploadTemporaryAvatar(TemporaryAvatarUploadRequest request,
     CHATSERVER_LOG_INFO(kAvatarUploadLogTag)
         << "temporary avatar uploaded key=" << result.avatarUploadKey;
     onSuccess(std::move(result));
+}
+
+void UserService::searchUserByAccount(
+    std::string account,
+    std::string accessToken,
+    SearchUserByAccountSuccess &&onSuccess,
+    Failure &&onFailure) const
+{
+    auto sharedSuccess =
+        std::make_shared<SearchUserByAccountSuccess>(std::move(onSuccess));
+    auto sharedFailure = std::make_shared<Failure>(std::move(onFailure));
+
+    account = trimCopy(account);
+    if (account.empty() || account.size() > 64)
+    {
+        (*sharedFailure)(ServiceError{
+            protocol::error::ErrorCode::kInvalidArgument,
+            "account length must be between 1 and 64",
+        });
+        return;
+    }
+
+    if (!std::all_of(account.begin(), account.end(), isAccountCharacterAllowed))
+    {
+        (*sharedFailure)(ServiceError{
+            protocol::error::ErrorCode::kInvalidArgument,
+            "account may contain only letters, digits, '_', '.' and '-'",
+        });
+        return;
+    }
+
+    accessToken = trimCopy(accessToken);
+    infra::security::TokenProvider tokenProvider;
+    infra::security::AccessTokenClaims claims;
+    if (accessToken.empty() ||
+        !tokenProvider.verifyAccessToken(accessToken, &claims))
+    {
+        (*sharedFailure)(ServiceError{
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            "invalid access token",
+        });
+        return;
+    }
+
+    userRepository_.findUserProfileByAccount(
+        std::move(account),
+        [sharedSuccess](std::optional<repository::UserProfileRecord> user) mutable {
+            protocol::dto::user::UserSearchResultView result;
+            result.exists = user.has_value();
+            if (user.has_value())
+            {
+                protocol::dto::user::UserProfileView profile;
+                profile.userId = std::move(user->userId);
+                profile.account = std::move(user->account);
+                profile.nickname = std::move(user->nickname);
+                profile.avatarUrl = std::move(user->avatarUrl);
+                result.user = std::move(profile);
+            }
+
+            (*sharedSuccess)(std::move(result));
+        },
+        [sharedFailure](std::string message) mutable {
+            CHATSERVER_LOG_ERROR(kUserSearchLogTag)
+                << "failed to search user by account: " << message;
+            (*sharedFailure)(ServiceError{
+                protocol::error::ErrorCode::kInternalError,
+                "failed to search user",
+            });
+        });
 }
 
 void UserService::updateProfile(

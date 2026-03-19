@@ -23,6 +23,8 @@ class UserService
   public:
     using UploadTemporaryAvatarSuccess =
         std::function<void(TemporaryAvatarUploadView)>;
+    using SearchUserByAccountSuccess =
+        std::function<void(protocol::dto::user::UserSearchResultView)>;
     using UpdateUserProfileSuccess =
         std::function<void(protocol::dto::user::UserProfileView)>;
     using ResolveFileSuccess = std::function<void(FileResolveResult)>;
@@ -37,6 +39,18 @@ class UserService
     void uploadTemporaryAvatar(TemporaryAvatarUploadRequest request,
                                UploadTemporaryAvatarSuccess &&onSuccess,
                                Failure &&onFailure) const;
+
+    /**
+     * @brief 按账号搜索用户是否存在。
+     * @param account 待搜索的账号。
+     * @param accessToken 当前登录态 access token。
+     * @param onSuccess 搜索成功回调。
+     * @param onFailure 搜索失败回调。
+     */
+    void searchUserByAccount(std::string account,
+                             std::string accessToken,
+                             SearchUserByAccountSuccess &&onSuccess,
+                             Failure &&onFailure) const;
 
     /**
      * @brief 更新当前登录用户的资料。

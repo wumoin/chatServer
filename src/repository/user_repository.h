@@ -94,6 +94,8 @@ class UserRepository {
     using CreateUserFailure = std::function<void(CreateUserError)>;
     using FindUserByAccountSuccess =
         std::function<void(std::optional<AuthUserRecord>)>;
+    using FindUserProfileByAccountSuccess =
+        std::function<void(std::optional<UserProfileRecord>)>;
     using FindUserByIdSuccess =
         std::function<void(std::optional<UserProfileRecord>)>;
     using UpdateUserProfileSuccess = std::function<void(UserProfileRecord)>;
@@ -118,6 +120,16 @@ class UserRepository {
     void findUserByAccount(std::string account,
                            FindUserByAccountSuccess &&onSuccess,
                            RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 按账号查询公开资料所需的最小用户记录。
+     * @param account 账号原值。
+     * @param onSuccess 查询成功后的回调；若用户不存在则回调空值。
+     * @param onFailure 查询失败后的回调，参数为数据库错误文本。
+     */
+    void findUserProfileByAccount(std::string account,
+                                  FindUserProfileByAccountSuccess &&onSuccess,
+                                  RepositoryFailure &&onFailure) const;
 
     /**
      * @brief 按用户 ID 查询基础资料。

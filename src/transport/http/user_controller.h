@@ -10,6 +10,9 @@ class UserController : public drogon::HttpController<UserController>
 {
   public:
     METHOD_LIST_BEGIN
+    ADD_METHOD_TO(UserController::searchUserByAccount,
+                  "/api/v1/users/search",
+                  drogon::Get);
     ADD_METHOD_TO(UserController::uploadTemporaryAvatar,
                   "/api/v1/users/avatar/temp",
                   drogon::Post);
@@ -23,6 +26,15 @@ class UserController : public drogon::HttpController<UserController>
                   "/api/v1/users/{1}/avatar",
                   drogon::Get);
     METHOD_LIST_END
+
+    /**
+     * @brief 按账号搜索用户是否存在。
+     * @param request HTTP 请求对象。
+     * @param callback HTTP 响应回调。
+     */
+    void searchUserByAccount(
+        const drogon::HttpRequestPtr &request,
+        std::function<void(const drogon::HttpResponsePtr &)> &&callback) const;
 
     /**
      * @brief 上传临时头像。

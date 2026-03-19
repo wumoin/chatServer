@@ -23,6 +23,12 @@ class IdGenerator {
      */
     std::string nextDeviceSessionId() const;
 
+    /**
+     * @brief 生成新的好友申请业务主键。
+     * @return 格式为 `fr_` + 24 位十六进制字符的好友申请 ID。
+     */
+    std::string nextFriendRequestId() const;
+
   private:
     /**
      * @brief 生成带业务前缀的字符串 ID。

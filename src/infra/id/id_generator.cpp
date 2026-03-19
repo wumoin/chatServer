@@ -20,6 +20,12 @@ std::string IdGenerator::nextDeviceSessionId() const
     return buildPrefixedId("ds_", 24);
 }
 
+std::string IdGenerator::nextFriendRequestId() const
+{
+    // friend_requests.request_id 当前统一走 `fr_` 前缀。
+    return buildPrefixedId("fr_", 24);
+}
+
 std::string IdGenerator::buildPrefixedId(const std::string &prefix,
                                          const std::size_t payloadLength) const
 {

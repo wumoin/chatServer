@@ -1,9 +1,8 @@
-#include "transport/http/user_controller.h"
+#include "transport/http/friend_controller.h"
 
-#include "protocol/dto/user/profile_dto.h"
+#include "protocol/dto/friend/friend_dto.h"
 #include "protocol/error/error_code.h"
 
-#include <drogon/MultiPart.h>
 #include <drogon/drogon.h>
 
 #include <cctype>
@@ -108,8 +107,14 @@ drogon::HttpStatusCode mapServiceErrorToStatus(
         return drogon::k400BadRequest;
     case protocol::error::ErrorCode::kInvalidAccessToken:
         return drogon::k401Unauthorized;
+    case protocol::error::ErrorCode::kForbidden:
+        return drogon::k403Forbidden;
     case protocol::error::ErrorCode::kNotFound:
         return drogon::k404NotFound;
+    case protocol::error::ErrorCode::kFriendAlreadyExists:
+    case protocol::error::ErrorCode::kFriendRequestAlreadyPending:
+    case protocol::error::ErrorCode::kFriendRequestAlreadyHandled:
+        return drogon::k409Conflict;
     case protocol::error::ErrorCode::kOk:
         return drogon::k200OK;
     case protocol::error::ErrorCode::kInternalError:
@@ -120,174 +125,11 @@ drogon::HttpStatusCode mapServiceErrorToStatus(
 
 }  // namespace
 
-void UserController::searchUserByAccount(
+void FriendController::sendFriendRequest(
     const drogon::HttpRequestPtr &request,
     std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
 {
     const std::string requestId = resolveRequestId(request);
-    auto sharedCallback =
-        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
-            std::move(callback));
-
-    const auto accessToken = resolveBearerAccessToken(request);
-    if (!accessToken.has_value())
-    {
-        (*sharedCallback)(makeResponse(
-            drogon::k401Unauthorized,
-            requestId,
-            protocol::error::ErrorCode::kInvalidAccessToken,
-            protocol::error::defaultMessage(
-                protocol::error::ErrorCode::kInvalidAccessToken)));
-        return;
-    }
-
-    const auto account = request->getOptionalParameter<std::string>("account");
-    if (!account.has_value())
-    {
-        (*sharedCallback)(makeResponse(
-            drogon::k400BadRequest,
-            requestId,
-            protocol::error::ErrorCode::kInvalidArgument,
-            "account is required"));
-        return;
-    }
-
-    userService_.searchUserByAccount(
-        *account,
-        *accessToken,
-        [sharedCallback, requestId](
-            protocol::dto::user::UserSearchResultView result) mutable {
-            (*sharedCallback)(makeResponse(
-                drogon::k200OK,
-                requestId,
-                protocol::error::ErrorCode::kOk,
-                protocol::error::defaultMessage(
-                    protocol::error::ErrorCode::kOk),
-                protocol::dto::user::toJson(result)));
-        },
-        [sharedCallback, requestId](service::ServiceError error) mutable {
-            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
-                                           requestId,
-                                           error.code,
-                                           error.message));
-        });
-}
-
-void UserController::uploadTemporaryAvatar(
-    const drogon::HttpRequestPtr &request,
-    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
-{
-    const std::string requestId = resolveRequestId(request);
-
-    auto sharedCallback =
-        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
-            std::move(callback));
-
-    drogon::MultiPartParser parser;
-    if (parser.parse(request) != 0)
-    {
-        (*sharedCallback)(makeResponse(
-            drogon::k400BadRequest,
-            requestId,
-            protocol::error::ErrorCode::kInvalidArgument,
-            "failed to parse multipart body"));
-        return;
-    }
-
-    const auto &files = parser.getFiles();
-    if (files.empty())
-    {
-        (*sharedCallback)(makeResponse(
-            drogon::k400BadRequest,
-            requestId,
-            protocol::error::ErrorCode::kInvalidArgument,
-            "avatar file is required"));
-        return;
-    }
-
-    const auto &file = files.front();
-    if (file.getFileType() != drogon::FT_IMAGE)
-    {
-        (*sharedCallback)(makeResponse(
-            drogon::k400BadRequest,
-            requestId,
-            protocol::error::ErrorCode::kInvalidArgument,
-            "avatar file must be an image"));
-        return;
-    }
-
-    service::TemporaryAvatarUploadRequest uploadRequest;
-    uploadRequest.originalFileName = file.getFileName();
-    uploadRequest.contentType = "image/upload";
-    uploadRequest.content.assign(file.fileData(), file.fileLength());
-
-    userService_.uploadTemporaryAvatar(
-        std::move(uploadRequest),
-        [sharedCallback, requestId](
-            service::TemporaryAvatarUploadView result) mutable {
-            Json::Value data(Json::objectValue);
-            data["avatar_upload_key"] = result.avatarUploadKey;
-            data["preview_url"] = result.previewUrl;
-
-            (*sharedCallback)(makeResponse(
-                drogon::k201Created,
-                requestId,
-                protocol::error::ErrorCode::kOk,
-                protocol::error::defaultMessage(
-                    protocol::error::ErrorCode::kOk),
-                std::move(data)));
-        },
-        [sharedCallback, requestId](service::ServiceError error) mutable {
-            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
-                                           requestId,
-                                           error.code,
-                                           error.message));
-        });
-}
-
-void UserController::previewTemporaryAvatar(
-    const drogon::HttpRequestPtr &request,
-    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
-{
-    const std::string requestId = resolveRequestId(request);
-    const auto avatarUploadKey = request->getOptionalParameter<std::string>(
-        "avatar_upload_key");
-    if (!avatarUploadKey.has_value())
-    {
-        callback(makeResponse(
-            drogon::k400BadRequest,
-            requestId,
-            protocol::error::ErrorCode::kInvalidArgument,
-            "avatar_upload_key is required"));
-        return;
-    }
-
-    auto sharedCallback =
-        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
-            std::move(callback));
-
-    userService_.getTemporaryAvatarFile(
-        *avatarUploadKey,
-        [request, sharedCallback](
-            service::FileResolveResult result) mutable {
-            (*sharedCallback)(drogon::HttpResponse::newFileResponse(
-                result.absolutePath, "", drogon::CT_NONE, "", request));
-        },
-        [sharedCallback, requestId](
-            service::ServiceError error) mutable {
-            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
-                                           requestId,
-                                           error.code,
-                                           error.message));
-        });
-}
-
-void UserController::updateProfile(
-    const drogon::HttpRequestPtr &request,
-    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
-{
-    const std::string requestId = resolveRequestId(request);
-
     auto sharedCallback =
         std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
             std::move(callback));
@@ -316,11 +158,10 @@ void UserController::updateProfile(
         return;
     }
 
-    protocol::dto::user::UpdateUserProfileRequest updateRequest;
+    protocol::dto::friendship::SendFriendRequest sendRequest;
     std::string parseError;
-    if (!protocol::dto::user::parseUpdateUserProfileRequest(*json,
-                                                            updateRequest,
-                                                            parseError))
+    if (!protocol::dto::friendship::parseSendFriendRequest(
+            *json, sendRequest, parseError))
     {
         (*sharedCallback)(makeResponse(
             drogon::k400BadRequest,
@@ -330,13 +171,56 @@ void UserController::updateProfile(
         return;
     }
 
-    userService_.updateProfile(
-        std::move(updateRequest),
+    friendService_.sendFriendRequest(
+        std::move(sendRequest),
         *accessToken,
         [sharedCallback, requestId](
-            protocol::dto::user::UserProfileView user) mutable {
+            protocol::dto::friendship::FriendRequestItemView item) mutable {
             Json::Value data(Json::objectValue);
-            data["user"] = protocol::dto::user::toJson(user);
+            data["request"] = protocol::dto::friendship::toJson(item);
+            (*sharedCallback)(makeResponse(
+                drogon::k201Created,
+                requestId,
+                protocol::error::ErrorCode::kOk,
+                protocol::error::defaultMessage(
+                    protocol::error::ErrorCode::kOk),
+                std::move(data)));
+        },
+        [sharedCallback, requestId](service::ServiceError error) mutable {
+            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
+                                           requestId,
+                                           error.code,
+                                           error.message));
+        });
+}
+
+void FriendController::listIncomingFriendRequests(
+    const drogon::HttpRequestPtr &request,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
+{
+    const std::string requestId = resolveRequestId(request);
+    auto sharedCallback =
+        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
+            std::move(callback));
+
+    const auto accessToken = resolveBearerAccessToken(request);
+    if (!accessToken.has_value())
+    {
+        (*sharedCallback)(makeResponse(
+            drogon::k401Unauthorized,
+            requestId,
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            protocol::error::defaultMessage(
+                protocol::error::ErrorCode::kInvalidAccessToken)));
+        return;
+    }
+
+    friendService_.listIncomingFriendRequests(
+        *accessToken,
+        [sharedCallback, requestId](
+            std::vector<protocol::dto::friendship::FriendRequestItemView> items) mutable {
+            Json::Value data(Json::objectValue);
+            data["requests"] = protocol::dto::friendship::toJson(items);
             (*sharedCallback)(makeResponse(
                 drogon::k200OK,
                 requestId,
@@ -353,27 +237,134 @@ void UserController::updateProfile(
         });
 }
 
-void UserController::getUserAvatar(
+void FriendController::listOutgoingFriendRequests(
     const drogon::HttpRequestPtr &request,
-    std::function<void(const drogon::HttpResponsePtr &)> &&callback,
-    std::string userId) const
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
 {
     const std::string requestId = resolveRequestId(request);
     auto sharedCallback =
         std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
             std::move(callback));
 
-    userService_.getUserAvatarFile(
-        std::move(userId),
-        [request, sharedCallback](
-            service::FileResolveResult result) mutable {
-            (*sharedCallback)(drogon::HttpResponse::newFileResponse(
-                result.absolutePath, "", drogon::CT_NONE, "", request));
-        },
+    const auto accessToken = resolveBearerAccessToken(request);
+    if (!accessToken.has_value())
+    {
+        (*sharedCallback)(makeResponse(
+            drogon::k401Unauthorized,
+            requestId,
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            protocol::error::defaultMessage(
+                protocol::error::ErrorCode::kInvalidAccessToken)));
+        return;
+    }
+
+    friendService_.listOutgoingFriendRequests(
+        *accessToken,
         [sharedCallback, requestId](
-            service::ServiceError error) mutable {
+            std::vector<protocol::dto::friendship::FriendRequestItemView> items) mutable {
+            Json::Value data(Json::objectValue);
+            data["requests"] = protocol::dto::friendship::toJson(items);
+            (*sharedCallback)(makeResponse(
+                drogon::k200OK,
+                requestId,
+                protocol::error::ErrorCode::kOk,
+                protocol::error::defaultMessage(
+                    protocol::error::ErrorCode::kOk),
+                std::move(data)));
+        },
+        [sharedCallback, requestId](service::ServiceError error) mutable {
             (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
                                            requestId,
+                                           error.code,
+                                           error.message));
+        });
+}
+
+void FriendController::acceptFriendRequest(
+    const drogon::HttpRequestPtr &request,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback,
+    std::string requestId) const
+{
+    const std::string resolvedRequestId = resolveRequestId(request);
+    auto sharedCallback =
+        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
+            std::move(callback));
+
+    const auto accessToken = resolveBearerAccessToken(request);
+    if (!accessToken.has_value())
+    {
+        (*sharedCallback)(makeResponse(
+            drogon::k401Unauthorized,
+            resolvedRequestId,
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            protocol::error::defaultMessage(
+                protocol::error::ErrorCode::kInvalidAccessToken)));
+        return;
+    }
+
+    friendService_.acceptFriendRequest(
+        std::move(requestId),
+        *accessToken,
+        [sharedCallback, resolvedRequestId](
+            protocol::dto::friendship::FriendRequestItemView item) mutable {
+            Json::Value data(Json::objectValue);
+            data["request"] = protocol::dto::friendship::toJson(item);
+            (*sharedCallback)(makeResponse(
+                drogon::k200OK,
+                resolvedRequestId,
+                protocol::error::ErrorCode::kOk,
+                protocol::error::defaultMessage(
+                    protocol::error::ErrorCode::kOk),
+                std::move(data)));
+        },
+        [sharedCallback, resolvedRequestId](service::ServiceError error) mutable {
+            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
+                                           resolvedRequestId,
+                                           error.code,
+                                           error.message));
+        });
+}
+
+void FriendController::rejectFriendRequest(
+    const drogon::HttpRequestPtr &request,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback,
+    std::string requestId) const
+{
+    const std::string resolvedRequestId = resolveRequestId(request);
+    auto sharedCallback =
+        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
+            std::move(callback));
+
+    const auto accessToken = resolveBearerAccessToken(request);
+    if (!accessToken.has_value())
+    {
+        (*sharedCallback)(makeResponse(
+            drogon::k401Unauthorized,
+            resolvedRequestId,
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            protocol::error::defaultMessage(
+                protocol::error::ErrorCode::kInvalidAccessToken)));
+        return;
+    }
+
+    friendService_.rejectFriendRequest(
+        std::move(requestId),
+        *accessToken,
+        [sharedCallback, resolvedRequestId](
+            protocol::dto::friendship::FriendRequestItemView item) mutable {
+            Json::Value data(Json::objectValue);
+            data["request"] = protocol::dto::friendship::toJson(item);
+            (*sharedCallback)(makeResponse(
+                drogon::k200OK,
+                resolvedRequestId,
+                protocol::error::ErrorCode::kOk,
+                protocol::error::defaultMessage(
+                    protocol::error::ErrorCode::kOk),
+                std::move(data)));
+        },
+        [sharedCallback, resolvedRequestId](service::ServiceError error) mutable {
+            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
+                                           resolvedRequestId,
                                            error.code,
                                            error.message));
         });
