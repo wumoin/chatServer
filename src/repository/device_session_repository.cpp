@@ -83,6 +83,19 @@ SELECT
 // - 已经非 active 时保留原状态，交给上层按幂等成功处理
 // - target 不存在时再由 service 判断成“无效访问令牌”
 
+constexpr auto kFindActiveSessionSql = R"SQL(
+SELECT
+    user_id,
+    device_session_id,
+    device_id
+FROM device_sessions
+WHERE user_id = $1::VARCHAR(32)
+  AND device_session_id = $2::VARCHAR(32)
+  AND device_id = $3::VARCHAR(128)
+  AND session_status = 'active'
+LIMIT 1
+)SQL";
+
 bool isDuplicateActiveDeviceSession(
     const drogon::orm::DrogonDbException &exception)
 {
@@ -228,6 +241,47 @@ void DeviceSessionRepository::revokeSession(
     catch (const std::exception &exception)
     {
         onFailure(RevokeDeviceSessionError{exception.what()});
+    }
+}
+
+void DeviceSessionRepository::findActiveSession(
+    FindActiveDeviceSessionParams params,
+    FindActiveSessionSuccess &&onSuccess,
+    RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+
+        client->execSqlAsync(
+            kFindActiveSessionSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                if (rows.empty())
+                {
+                    onSuccess(std::nullopt);
+                    return;
+                }
+
+                const auto &row = rows[0];
+                ActiveDeviceSessionRecord record;
+                record.userId = row["user_id"].as<std::string>();
+                record.deviceSessionId =
+                    row["device_session_id"].as<std::string>();
+                record.deviceId = row["device_id"].as<std::string>();
+                onSuccess(std::move(record));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            std::move(params.userId),
+            std::move(params.deviceSessionId),
+            std::move(params.deviceId));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
     }
 }
 

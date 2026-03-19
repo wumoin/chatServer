@@ -76,6 +76,26 @@ struct RevokeDeviceSessionError
     std::string message;
 };
 
+/**
+ * @brief 查询当前仍处于 active 状态的设备会话所需参数。
+ */
+struct FindActiveDeviceSessionParams
+{
+    std::string userId;
+    std::string deviceSessionId;
+    std::string deviceId;
+};
+
+/**
+ * @brief 当前有效设备会话的最小读取结果。
+ */
+struct ActiveDeviceSessionRecord
+{
+    std::string userId;
+    std::string deviceSessionId;
+    std::string deviceId;
+};
+
 class DeviceSessionRepository
 {
   public:
@@ -87,6 +107,9 @@ class DeviceSessionRepository
         std::function<void(RevokeDeviceSessionResult)>;
     using RevokeSessionFailure =
         std::function<void(RevokeDeviceSessionError)>;
+    using FindActiveSessionSuccess =
+        std::function<void(std::optional<ActiveDeviceSessionRecord>)>;
+    using RepositoryFailure = std::function<void(std::string)>;
 
     /**
      * @brief 为指定用户在当前设备上创建新的活跃会话。
@@ -107,6 +130,16 @@ class DeviceSessionRepository
     void revokeSession(RevokeDeviceSessionParams params,
                        RevokeSessionSuccess &&onSuccess,
                        RevokeSessionFailure &&onFailure) const;
+
+    /**
+     * @brief 查询指定用户当前设备会话是否仍处于 active 状态。
+     * @param params 待查询的用户 / 设备会话 / 设备标识。
+     * @param onSuccess 查询成功后的回调；若不存在活跃会话则返回空值。
+     * @param onFailure 查询失败后的回调，参数为数据库错误文本。
+     */
+    void findActiveSession(FindActiveDeviceSessionParams params,
+                           FindActiveSessionSuccess &&onSuccess,
+                           RepositoryFailure &&onFailure) const;
 
   private:
     /**

@@ -124,6 +124,7 @@ add_executable(chatServer
     src/infra/log/app_logger.cpp
     src/infra/security/password_hasher.cpp
     src/infra/security/token_provider.cpp
+    src/infra/ws/connection_registry.cpp
     src/storage/file_storage.cpp
     src/storage/local_storage.cpp
     src/repository/conversation_repository.cpp
@@ -135,11 +136,13 @@ add_executable(chatServer
     src/service/conversation_service.cpp
     src/service/friend_service.cpp
     src/service/user_service.cpp
+    src/service/ws_session_service.cpp
     src/app/application.cpp
     src/transport/http/auth_controller.cpp
     src/transport/http/conversation_controller.cpp
     src/transport/http/friend_controller.cpp
     src/transport/http/user_controller.cpp
+    src/transport/ws/chat_ws_controller.cpp
     src/main.cpp
 )
 
