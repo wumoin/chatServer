@@ -16,7 +16,7 @@
 - 默认读取 chatServer/config/app.json；
 - 默认读取名为 default 的 db_client；
 - 执行 init_sql/ 目录下当前已落地的基础表结构脚本，
-  现阶段已覆盖认证域和好友关系域的最小表结构。
+  现阶段已覆盖认证域、好友关系域和私聊会话域的最小表结构。
 
 可选参数：
 - --config：覆盖 app.json 路径；
@@ -85,6 +85,24 @@ MIGRATION_STEPS = (
         object_kind="table",
         object_name="friendships",
         exists_sql="SELECT to_regclass('friendships') IS NOT NULL;",
+    ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0005_conversations.sql",
+        object_kind="table",
+        object_name="conversations",
+        exists_sql="SELECT to_regclass('conversations') IS NOT NULL;",
+    ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0006_conversation_members.sql",
+        object_kind="table",
+        object_name="conversation_members",
+        exists_sql="SELECT to_regclass('conversation_members') IS NOT NULL;",
+    ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0007_messages.sql",
+        object_kind="table",
+        object_name="messages",
+        exists_sql="SELECT to_regclass('messages') IS NOT NULL;",
     ),
 )
 
