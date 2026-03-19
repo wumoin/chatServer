@@ -10,6 +10,9 @@ class FriendController : public drogon::HttpController<FriendController>
 {
   public:
     METHOD_LIST_BEGIN
+    ADD_METHOD_TO(FriendController::listFriends,
+                  "/api/v1/friends",
+                  drogon::Get);
     ADD_METHOD_TO(FriendController::sendFriendRequest,
                   "/api/v1/friends/requests",
                   drogon::Post);
@@ -26,6 +29,15 @@ class FriendController : public drogon::HttpController<FriendController>
                   "/api/v1/friends/requests/{1}/reject",
                   drogon::Post);
     METHOD_LIST_END
+
+    /**
+     * @brief 查询当前用户的好友列表。
+     * @param request HTTP 请求对象。
+     * @param callback HTTP 响应回调。
+     */
+    void listFriends(
+        const drogon::HttpRequestPtr &request,
+        std::function<void(const drogon::HttpResponsePtr &)> &&callback) const;
 
     /**
      * @brief 发送好友申请。

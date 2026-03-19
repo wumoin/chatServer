@@ -55,6 +55,15 @@ struct FriendRequestListItemRecord
     FriendPeerUserRecord peerUser;
 };
 
+/**
+ * @brief 好友列表项记录。
+ */
+struct FriendListItemRecord
+{
+    FriendPeerUserRecord user;
+    std::int64_t createdAtMs{0};
+};
+
 enum class CreateFriendRequestErrorKind
 {
     kPendingRequestAlreadyExists,
@@ -105,6 +114,8 @@ class FriendRepository
         std::function<void(std::optional<FriendRequestRecord>)>;
     using ListFriendRequestsSuccess =
         std::function<void(std::vector<FriendRequestListItemRecord>)>;
+    using ListFriendsSuccess =
+        std::function<void(std::vector<FriendListItemRecord>)>;
     using HandleFriendRequestSuccess =
         std::function<void(UpdateFriendRequestResult)>;
     using RepositoryFailure = std::function<void(std::string)>;
@@ -162,6 +173,16 @@ class FriendRepository
         std::string requesterUserId,
         ListFriendRequestsSuccess &&onSuccess,
         RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 查询当前用户的正式好友列表。
+     * @param userId 当前登录用户 ID。
+     * @param onSuccess 查询成功后的回调。
+     * @param onFailure 查询失败后的回调。
+     */
+    void listFriends(std::string userId,
+                     ListFriendsSuccess &&onSuccess,
+                     RepositoryFailure &&onFailure) const;
 
     /**
      * @brief 接受好友申请，并同时建立双向好友关系。

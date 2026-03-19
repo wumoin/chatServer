@@ -43,6 +43,15 @@ struct FriendRequestItemView
 };
 
 /**
+ * @brief 好友列表项视图。
+ */
+struct FriendListItemView
+{
+    FriendPeerUserView user;
+    std::int64_t createdAtMs{0};
+};
+
+/**
  * @brief 解析发送好友申请请求。
  * @param json 请求体 JSON。
  * @param out 解析成功后写入的请求 DTO。
@@ -131,6 +140,34 @@ inline Json::Value toJson(const FriendRequestItemView &item)
  * @return JSON 数组。
  */
 inline Json::Value toJson(const std::vector<FriendRequestItemView> &items)
+{
+    Json::Value json(Json::arrayValue);
+    for (const auto &item : items)
+    {
+        json.append(toJson(item));
+    }
+    return json;
+}
+
+/**
+ * @brief 把好友列表项转换成 JSON。
+ * @param item 好友列表项视图。
+ * @return JSON 对象。
+ */
+inline Json::Value toJson(const FriendListItemView &item)
+{
+    Json::Value json(Json::objectValue);
+    json["user"] = toJson(item.user);
+    json["created_at_ms"] = Json::Int64(item.createdAtMs);
+    return json;
+}
+
+/**
+ * @brief 把好友列表转换成 JSON 数组。
+ * @param items 好友列表。
+ * @return JSON 数组。
+ */
+inline Json::Value toJson(const std::vector<FriendListItemView> &items)
 {
     Json::Value json(Json::arrayValue);
     for (const auto &item : items)

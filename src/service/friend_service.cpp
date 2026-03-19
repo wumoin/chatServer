@@ -77,6 +77,18 @@ protocol::dto::friendship::FriendRequestItemView toFriendRequestItemView(
     return item;
 }
 
+protocol::dto::friendship::FriendListItemView toFriendListItemView(
+    const repository::FriendListItemRecord &record)
+{
+    protocol::dto::friendship::FriendListItemView item;
+    item.user.userId = record.user.userId;
+    item.user.account = record.user.account;
+    item.user.nickname = record.user.nickname;
+    item.user.avatarUrl = record.user.avatarUrl;
+    item.createdAtMs = record.createdAtMs;
+    return item;
+}
+
 bool isUserIdCharacterAllowed(const char ch)
 {
     const unsigned char value = static_cast<unsigned char>(ch);
@@ -579,6 +591,46 @@ void FriendService::listOutgoingFriendRequests(std::string accessToken,
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
                 "failed to list outgoing friend requests",
+            });
+        });
+}
+
+void FriendService::listFriends(std::string accessToken,
+                                ListFriendsSuccess &&onSuccess,
+                                Failure &&onFailure) const
+{
+    auto sharedSuccess =
+        std::make_shared<ListFriendsSuccess>(std::move(onSuccess));
+    auto sharedFailure = std::make_shared<Failure>(std::move(onFailure));
+
+    accessToken = trimCopy(accessToken);
+    infra::security::AccessTokenClaims claims;
+    if (accessToken.empty() || !resolveCurrentUserClaims(accessToken, claims))
+    {
+        (*sharedFailure)(ServiceError{
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            "invalid access token",
+        });
+        return;
+    }
+
+    friendRepository_.listFriends(
+        claims.userId,
+        [sharedSuccess](std::vector<repository::FriendListItemRecord> rows) mutable {
+            std::vector<protocol::dto::friendship::FriendListItemView> items;
+            items.reserve(rows.size());
+            for (const auto &row : rows)
+            {
+                items.push_back(toFriendListItemView(row));
+            }
+            (*sharedSuccess)(std::move(items));
+        },
+        [sharedFailure](std::string message) mutable {
+            CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
+                << "failed to list friends: " << message;
+            (*sharedFailure)(ServiceError{
+                protocol::error::ErrorCode::kInternalError,
+                "failed to list friends",
             });
         });
 }

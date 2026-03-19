@@ -103,6 +103,21 @@ WHERE fr.requester_id = $1
 ORDER BY fr.created_at DESC
 )SQL";
 
+constexpr auto kListFriendsSql = R"SQL(
+SELECT
+    f.user_id,
+    f.friend_user_id,
+    (EXTRACT(EPOCH FROM f.created_at) * 1000)::BIGINT AS created_at_ms,
+    u.user_id AS peer_user_id,
+    u.account AS peer_account,
+    u.nickname AS peer_nickname,
+    u.avatar_url AS peer_avatar_url
+FROM friendships f
+JOIN users u ON u.user_id = f.friend_user_id
+WHERE f.user_id = $1
+ORDER BY f.created_at DESC, f.friend_user_id ASC
+)SQL";
+
 constexpr auto kAcceptFriendRequestSql = R"SQL(
 WITH updated_request AS (
     UPDATE friend_requests
@@ -201,6 +216,28 @@ std::vector<FriendRequestListItemRecord> toFriendRequestList(
         {
             item.peerUser.avatarUrl =
                 row["peer_avatar_url"].as<std::string>();
+        }
+        items.push_back(std::move(item));
+    }
+
+    return items;
+}
+
+std::vector<FriendListItemRecord> toFriendList(const drogon::orm::Result &rows)
+{
+    std::vector<FriendListItemRecord> items;
+    items.reserve(rows.size());
+
+    for (const auto &row : rows)
+    {
+        FriendListItemRecord item;
+        item.createdAtMs = row["created_at_ms"].as<std::int64_t>();
+        item.user.userId = row["peer_user_id"].as<std::string>();
+        item.user.account = row["peer_account"].as<std::string>();
+        item.user.nickname = row["peer_nickname"].as<std::string>();
+        if (!row["peer_avatar_url"].isNull())
+        {
+            item.user.avatarUrl = row["peer_avatar_url"].as<std::string>();
         }
         items.push_back(std::move(item));
     }
@@ -370,6 +407,31 @@ void FriendRepository::listOutgoingFriendRequests(
                 onFailure(exception.base().what());
             },
             std::move(requesterUserId));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
+    }
+}
+
+void FriendRepository::listFriends(std::string userId,
+                                   ListFriendsSuccess &&onSuccess,
+                                   RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+        client->execSqlAsync(
+            kListFriendsSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                onSuccess(toFriendList(rows));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            std::move(userId));
     }
     catch (const std::exception &exception)
     {

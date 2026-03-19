@@ -18,6 +18,8 @@ class FriendService
         std::function<void(protocol::dto::friendship::FriendRequestItemView)>;
     using ListRequestsSuccess =
         std::function<void(std::vector<protocol::dto::friendship::FriendRequestItemView>)>;
+    using ListFriendsSuccess =
+        std::function<void(std::vector<protocol::dto::friendship::FriendListItemView>)>;
     using Failure = std::function<void(ServiceError)>;
 
     /**
@@ -75,6 +77,16 @@ class FriendService
     void listOutgoingFriendRequests(std::string accessToken,
                                     ListRequestsSuccess &&onSuccess,
                                     Failure &&onFailure) const;
+
+    /**
+     * @brief 查询当前用户的正式好友列表。
+     * @param accessToken 当前登录态 access token。
+     * @param onSuccess 查询成功回调。
+     * @param onFailure 查询失败回调。
+     */
+    void listFriends(std::string accessToken,
+                     ListFriendsSuccess &&onSuccess,
+                     Failure &&onFailure) const;
 
   private:
     /**

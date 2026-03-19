@@ -125,6 +125,49 @@ drogon::HttpStatusCode mapServiceErrorToStatus(
 
 }  // namespace
 
+void FriendController::listFriends(
+    const drogon::HttpRequestPtr &request,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
+{
+    const std::string requestId = resolveRequestId(request);
+    auto sharedCallback =
+        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
+            std::move(callback));
+
+    const auto accessToken = resolveBearerAccessToken(request);
+    if (!accessToken.has_value())
+    {
+        (*sharedCallback)(makeResponse(
+            drogon::k401Unauthorized,
+            requestId,
+            protocol::error::ErrorCode::kInvalidAccessToken,
+            protocol::error::defaultMessage(
+                protocol::error::ErrorCode::kInvalidAccessToken)));
+        return;
+    }
+
+    friendService_.listFriends(
+        *accessToken,
+        [sharedCallback, requestId](
+            std::vector<protocol::dto::friendship::FriendListItemView> items) mutable {
+            Json::Value data(Json::objectValue);
+            data["friends"] = protocol::dto::friendship::toJson(items);
+            (*sharedCallback)(makeResponse(
+                drogon::k200OK,
+                requestId,
+                protocol::error::ErrorCode::kOk,
+                protocol::error::defaultMessage(
+                    protocol::error::ErrorCode::kOk),
+                std::move(data)));
+        },
+        [sharedCallback, requestId](service::ServiceError error) mutable {
+            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
+                                           requestId,
+                                           error.code,
+                                           error.message));
+        });
+}
+
 void FriendController::sendFriendRequest(
     const drogon::HttpRequestPtr &request,
     std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
