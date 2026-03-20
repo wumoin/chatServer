@@ -2,6 +2,7 @@
 
 #include "infra/log/app_logger.h"
 #include "protocol/dto/ws/ws_auth_dto.h"
+#include "protocol/dto/ws/ws_business_dto.h"
 #include "protocol/dto/ws/ws_envelope_dto.h"
 #include "protocol/error/error_code.h"
 
@@ -225,10 +226,49 @@ void ChatWsController::handleNewMessage(
         return;
     }
 
+    if (envelope.type == "ws.send")
+    {
+        protocol::dto::ws::WsSendPayload sendPayload;
+        if (!protocol::dto::ws::parseWsSendPayload(envelope.payload,
+                                                   sendPayload,
+                                                   parseError))
+        {
+            CHATSERVER_LOG_WARN(kWsLogTag)
+                << "实时通道收到无效 ws.send 载荷，原因：" << parseError;
+            sendError(connection,
+                      envelope.requestId,
+                      protocol::error::ErrorCode::kInvalidArgument,
+                      parseError);
+            return;
+        }
+
+        CHATSERVER_LOG_INFO(kWsLogTag)
+            << "收到 ws.send，route=" << sendPayload.route
+            << " request_id=" << envelope.requestId;
+
+        realtimePushService_.pushAckToConnection(
+            connection,
+            envelope.requestId,
+            sendPayload.route,
+            false,
+            protocol::error::ErrorCode::kInvalidArgument,
+            "暂不支持该 WebSocket 业务路由");
+        return;
+    }
+
+    if (envelope.type == "ws.ack" || envelope.type == "ws.new")
+    {
+        sendError(connection,
+                  envelope.requestId,
+                  protocol::error::ErrorCode::kInvalidArgument,
+                  "客户端不允许主动发送该 WebSocket 事件类型");
+        return;
+    }
+
     sendError(connection,
               envelope.requestId,
               protocol::error::ErrorCode::kInvalidArgument,
-              "暂不支持该 WebSocket 事件类型");
+              "暂不支持该 WebSocket 顶层事件类型");
 }
 
 void ChatWsController::handleConnectionClosed(

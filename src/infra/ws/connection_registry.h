@@ -45,6 +45,14 @@ class ConnectionRegistry
         const drogon::WebSocketConnectionPtr &connection);
 
     /**
+     * @brief 查询指定设备会话当前在线的连接。
+     * @param deviceSessionId 设备会话 ID。
+     * @return 若当前在线则返回连接；否则返回空指针。
+     */
+    static drogon::WebSocketConnectionPtr findConnectionByDeviceSessionId(
+        const std::string &deviceSessionId);
+
+    /**
      * @brief 查询指定用户当前在线的连接。
      * @param userId 用户 ID。
      * @return 当前仍有效的连接列表。

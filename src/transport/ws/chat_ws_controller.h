@@ -1,5 +1,6 @@
 #pragma once
 
+#include "service/realtime_push_service.h"
 #include "service/ws_session_service.h"
 
 #include <drogon/WebSocketController.h>
@@ -12,8 +13,9 @@ namespace chatserver::transport::ws {
  * 第一版先只负责：
  * 1) 建连与断连；
  * 2) `ws.auth`；
- * 3) `ping / pong`；
- * 4) 统一 `ws.error` 回包。
+ * 3) `ws.send` 的基础解析与分发入口；
+ * 4) `ws.ack / ws.new` 的基础回包能力；
+ * 5) 统一 `ws.error` 回包。
  */
 class ChatWsController
     : public drogon::WebSocketController<ChatWsController>
@@ -50,6 +52,7 @@ class ChatWsController
         const drogon::WebSocketConnectionPtr &connection) override;
 
   private:
+    service::RealtimePushService realtimePushService_;
     service::WsSessionService wsSessionService_;
 };
 

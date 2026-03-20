@@ -101,6 +101,28 @@ void ConnectionRegistry::unregisterConnection(
     eraseDeviceSessionNoLock(deviceSessionId, existingIt->second.userId);
 }
 
+drogon::WebSocketConnectionPtr
+ConnectionRegistry::findConnectionByDeviceSessionId(
+    const std::string &deviceSessionId)
+{
+    std::lock_guard<std::mutex> lock(g_registryMutex);
+
+    auto entryIt = g_connectionsByDeviceSessionId.find(deviceSessionId);
+    if (entryIt == g_connectionsByDeviceSessionId.end())
+    {
+        return nullptr;
+    }
+
+    auto connection = entryIt->second.connection.lock();
+    if (connection == nullptr || !connection->connected())
+    {
+        eraseDeviceSessionNoLock(deviceSessionId, entryIt->second.userId);
+        return nullptr;
+    }
+
+    return connection;
+}
+
 std::vector<drogon::WebSocketConnectionPtr>
 ConnectionRegistry::findConnectionsByUserId(const std::string &userId)
 {
