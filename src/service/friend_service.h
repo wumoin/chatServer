@@ -3,6 +3,7 @@
 #include "protocol/dto/friend/friend_dto.h"
 #include "repository/friend_repository.h"
 #include "repository/user_repository.h"
+#include "service/realtime_push_service.h"
 #include "service/service_error.h"
 
 #include <functional>
@@ -101,6 +102,7 @@ class FriendService
 
     repository::FriendRepository friendRepository_;
     repository::UserRepository userRepository_;
+    RealtimePushService realtimePushService_;
 };
 
 }  // namespace chatserver::service

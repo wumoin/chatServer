@@ -138,12 +138,12 @@ void ConversationService::createOrFindPrivateConversation(
 
                     conversationRepository_.createOrFindDirectConversation(
                         std::move(params),
-                        [claims, sharedSuccess, sharedFailure, this](
+                        [claims, peerUserId, sharedSuccess, sharedFailure, this](
                             repository::CreateOrFindDirectConversationResult result) mutable {
                             conversationRepository_.findConversationItem(
                                 claims.userId,
                                 result.conversationId,
-                                [sharedSuccess, sharedFailure, this](
+                                [peerUserId, sharedSuccess, sharedFailure, this](
                                     std::optional<repository::ConversationListItemRecord> item) mutable {
                                     if (!item.has_value())
                                     {
@@ -153,7 +153,17 @@ void ConversationService::createOrFindPrivateConversation(
                                         });
                                         return;
                                     }
-                                    (*sharedSuccess)(toConversationView(*item));
+                                    auto view = toConversationView(*item);
+                                    (*sharedSuccess)(view);
+
+                                    Json::Value payload(Json::objectValue);
+                                    payload["conversation"] =
+                                        protocol::dto::conversation::toJson(
+                                            view);
+                                    realtimePushService_.pushNewToUser(
+                                        peerUserId,
+                                        "conversation.created",
+                                        std::move(payload));
                                 },
                                 [sharedFailure](std::string message) mutable {
                                     CHATSERVER_LOG_ERROR(kConversationLogTag)

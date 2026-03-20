@@ -194,13 +194,23 @@ void FriendService::sendFriendRequest(
                     friendRepository_.createFriendRequest(
                         std::move(params),
                         [targetUser = std::move(targetUser),
-                         sharedSuccess](
+                         sharedSuccess,
+                         this](
                             repository::FriendRequestRecord record) mutable {
+                            auto item =
+                                toFriendRequestItemView(record, *targetUser);
                             CHATSERVER_LOG_INFO(kFriendRequestLogTag)
                                 << "好友申请创建成功，request_id="
                                 << record.requestId;
-                            (*sharedSuccess)(
-                                toFriendRequestItemView(record, *targetUser));
+                            (*sharedSuccess)(item);
+
+                            Json::Value payload(Json::objectValue);
+                            payload["request"] =
+                                protocol::dto::friendship::toJson(item);
+                            realtimePushService_.pushNewToUser(
+                                targetUser->userId,
+                                "friend.request.new",
+                                std::move(payload));
                         },
                         [sharedFailure](
                             repository::CreateFriendRequestError error) mutable {
@@ -331,7 +341,8 @@ void FriendService::acceptFriendRequest(std::string requestId,
                         [request = std::move(request),
                          peerUser = std::move(peerUser),
                          sharedSuccess,
-                         sharedFailure](
+                         sharedFailure,
+                         this](
                             repository::UpdateFriendRequestResult result) mutable {
                             if (result.status ==
                                 repository::UpdateFriendRequestStatus::
@@ -347,8 +358,17 @@ void FriendService::acceptFriendRequest(std::string requestId,
 
                             request->status = "accepted";
                             request->handledAtMs = currentEpochMs();
-                            (*sharedSuccess)(
-                                toFriendRequestItemView(*request, *peerUser));
+                            auto item =
+                                toFriendRequestItemView(*request, *peerUser);
+                            (*sharedSuccess)(item);
+
+                            Json::Value payload(Json::objectValue);
+                            payload["request"] =
+                                protocol::dto::friendship::toJson(item);
+                            realtimePushService_.pushNewToUser(
+                                request->requesterId,
+                                "friend.request.accepted",
+                                std::move(payload));
                         },
                         [sharedFailure](std::string message) mutable {
                             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
@@ -468,7 +488,8 @@ void FriendService::rejectFriendRequest(std::string requestId,
                         [request = std::move(request),
                          peerUser = std::move(peerUser),
                          sharedSuccess,
-                         sharedFailure](
+                         sharedFailure,
+                         this](
                             repository::UpdateFriendRequestResult result) mutable {
                             if (result.status ==
                                 repository::UpdateFriendRequestStatus::
@@ -484,8 +505,17 @@ void FriendService::rejectFriendRequest(std::string requestId,
 
                             request->status = "rejected";
                             request->handledAtMs = currentEpochMs();
-                            (*sharedSuccess)(
-                                toFriendRequestItemView(*request, *peerUser));
+                            auto item =
+                                toFriendRequestItemView(*request, *peerUser);
+                            (*sharedSuccess)(item);
+
+                            Json::Value payload(Json::objectValue);
+                            payload["request"] =
+                                protocol::dto::friendship::toJson(item);
+                            realtimePushService_.pushNewToUser(
+                                request->requesterId,
+                                "friend.request.rejected",
+                                std::move(payload));
                         },
                         [sharedFailure](std::string message) mutable {
                             CHATSERVER_LOG_ERROR(kFriendRequestLogTag)
