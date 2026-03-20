@@ -41,6 +41,12 @@ class IdGenerator {
      */
     std::string nextMessageId() const;
 
+    /**
+     * @brief 生成新的附件业务主键。
+     * @return 格式为 `att_` + 24 位十六进制字符的附件 ID。
+     */
+    std::string nextAttachmentId() const;
+
   private:
     /**
      * @brief 生成带业务前缀的字符串 ID。

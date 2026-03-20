@@ -23,6 +23,8 @@ std::int64_t nowEpochMs()
 
 bool canDeliver(const drogon::WebSocketConnectionPtr &connection)
 {
+    // 推送层采用“尽力而为”策略。目标连接不在线时直接跳过，
+    // 不能让实时推送反过来影响主业务事务是否成功。
     return connection != nullptr && connection->connected();
 }
 
@@ -61,6 +63,8 @@ void RealtimePushService::pushAckToConnection(
         return;
     }
 
+    // ws.ack 表示“某次请求已经被服务端处理完成”，因此必须保留 request_id，
+    // 客户端才能把这个确认和对应的 ws.send 对上。
     protocol::dto::ws::WsAckPayload payload;
     payload.route = route;
     payload.ok = ok;
@@ -84,6 +88,7 @@ void RealtimePushService::pushAckToDeviceSession(
     std::string message,
     Json::Value data) const
 {
+    // 发送确认通常只需要回给发起请求的那台设备，而不是广播给同一用户的所有在线端。
     auto connection =
         infra::ws::ConnectionRegistry::findConnectionByDeviceSessionId(
             deviceSessionId);
@@ -115,6 +120,8 @@ void RealtimePushService::pushNewToConnection(
         return;
     }
 
+    // ws.new 表示服务端主动推送“有新事件发生”，比如 message.created、
+    // conversation.created、friend.request.new 都会复用这一层发送。
     protocol::dto::ws::WsNewPayload payload;
     payload.route = route;
     payload.data =
@@ -151,6 +158,7 @@ void RealtimePushService::pushNewToUser(const std::string &userId,
                                         Json::Value data,
                                         const std::string &requestId) const
 {
+    // 同一个用户可能在多个设备上在线，因此这里需要向该用户的所有在线连接广播。
     auto connections = infra::ws::ConnectionRegistry::findConnectionsByUserId(
         userId);
     if (connections.empty())
@@ -174,6 +182,8 @@ void RealtimePushService::pushNewToUsers(const std::vector<std::string> &userIds
                                          Json::Value data,
                                          const std::string &requestId) const
 {
+    // 一个业务事件可能传入重复 user_id，也可能不同 user_id 最终映射到同一条连接。
+    // 这里分别对 user 和 connection 做去重，避免同一帧被重复发送。
     std::unordered_set<std::string> uniqueUserIds(userIds.begin(), userIds.end());
     std::unordered_set<const void *> pushedConnections;
 

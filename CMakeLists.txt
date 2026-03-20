@@ -127,6 +127,7 @@ add_executable(chatServer
     src/infra/ws/connection_registry.cpp
     src/storage/file_storage.cpp
     src/storage/local_storage.cpp
+    src/repository/attachment_repository.cpp
     src/repository/conversation_repository.cpp
     src/repository/device_session_repository.cpp
     src/repository/friend_repository.cpp
@@ -134,6 +135,7 @@ add_executable(chatServer
     src/service/avatar_service.cpp
     src/service/auth_service.cpp
     src/service/conversation_service.cpp
+    src/service/file_service.cpp
     src/service/friend_service.cpp
     src/service/realtime_push_service.cpp
     src/service/user_service.cpp
@@ -142,6 +144,7 @@ add_executable(chatServer
     src/app/application.cpp
     src/transport/http/auth_controller.cpp
     src/transport/http/conversation_controller.cpp
+    src/transport/http/file_controller.cpp
     src/transport/http/friend_controller.cpp
     src/transport/http/user_controller.cpp
     src/transport/ws/chat_ws_controller.cpp

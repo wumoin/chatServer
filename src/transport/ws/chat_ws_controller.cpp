@@ -87,6 +87,8 @@ void ChatWsController::handleNewConnection(
         return;
     }
 
+    // 连接在这一刻只是“通道已建立”，还没有和具体用户绑定。
+    // 真正的用户归属要等客户端随后发送 ws.auth。
     CHATSERVER_LOG_INFO(kWsLogTag)
         << "实时通道已建立连接，来源=" << request->peerAddr().toIpPort()
         << "，等待 ws.auth";
@@ -97,6 +99,8 @@ void ChatWsController::handleNewMessage(
     std::string &&message,
     const drogon::WebSocketMessageType &type)
 {
+    // WS controller 只负责协议层解析、鉴权门禁和业务路由分发，
+    // 不直接承载消息落库或会话业务逻辑。
     if (connection == nullptr)
     {
         return;
@@ -105,6 +109,7 @@ void ChatWsController::handleNewMessage(
     if (type == drogon::WebSocketMessageType::Ping ||
         type == drogon::WebSocketMessageType::Pong)
     {
+        // 底层 WebSocket 协议心跳在这一层直接放行，不进入业务错误处理。
         return;
     }
 
@@ -217,6 +222,7 @@ void ChatWsController::handleNewMessage(
 
     if (!wsSessionService_.isAuthenticated(connection))
     {
+        // 除 ws.auth 之外的其它业务事件都必须建立在已认证连接之上。
         sendError(connection,
                   envelope.requestId,
                   protocol::error::ErrorCode::kInvalidAccessToken,
@@ -242,6 +248,7 @@ void ChatWsController::handleNewMessage(
             return;
         }
 
+        // ws.send 的顶层语义只是“客户端发起业务动作”，真正做什么由 route 决定。
         CHATSERVER_LOG_INFO(kWsLogTag)
             << "收到 ws.send，route=" << sendPayload.route
             << " request_id=" << envelope.requestId;
@@ -260,6 +267,7 @@ void ChatWsController::handleNewMessage(
 
         if (sendPayload.route == "message.send_text")
         {
+            // 第一条真实 ws.send 路由：发送文本消息。
             wsMessageService_.handleSendTextMessage(std::move(sendPayload.data),
                                                    envelope.requestId,
                                                    *context,
@@ -303,6 +311,7 @@ void ChatWsController::handleConnectionClosed(
     const bool wasDisconnected =
         connection != nullptr ? connection->disconnected() : false;
 
+    // 连接关闭后必须从在线连接表里移除，否则后续推送会继续命中一条已经失效的连接。
     wsSessionService_.handleConnectionClosed(connection);
     if (context.has_value())
     {

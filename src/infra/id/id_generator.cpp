@@ -38,6 +38,12 @@ std::string IdGenerator::nextMessageId() const
     return buildPrefixedId("m_", 24);
 }
 
+std::string IdGenerator::nextAttachmentId() const
+{
+    // attachments.attachment_id 当前统一走 `att_` 前缀。
+    return buildPrefixedId("att_", 24);
+}
+
 std::string IdGenerator::buildPrefixedId(const std::string &prefix,
                                          const std::size_t payloadLength) const
 {

@@ -69,6 +69,12 @@ void WsMessageService::handleSendTextMessage(
     WsConnectionContext context,
     const drogon::WebSocketConnectionPtr &connection) const
 {
+    // 文本消息的 WS 处理链路：
+    // 1. 校验 payload 与会话参数
+    // 2. 校验当前连接用户是否属于该会话
+    // 3. 写入 messages
+    // 4. 给发送方回 ws.ack
+    // 5. 给会话在线成员推 ws.new(message.created)
     if (connection == nullptr)
     {
         return;
@@ -189,6 +195,8 @@ void WsMessageService::handleSendTextMessage(
                                             sharedContext->userId);
             if (memberIt == userIds.end())
             {
+                // 从外部行为上统一表现为“conversation not found”，
+                // 避免把会话存在性和成员权限差异暴露给客户端。
                 realtimePushService_.pushAckToConnection(
                     *sharedConnection,
                     *sharedRequestId,
@@ -229,6 +237,8 @@ void WsMessageService::handleSendTextMessage(
                     Json::Value newData =
                         protocol::dto::conversation::toJson(view);
 
+                    // 所有在线会话成员（包括发送者自己）都会收到同一条正式消息事件，
+                    // 这样每个客户端都能用统一的 message.created 路径更新本地状态。
                     realtimePushService_.pushNewToUsers(
                         userIds,
                         "message.created",
