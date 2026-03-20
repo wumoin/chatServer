@@ -104,6 +104,12 @@ MIGRATION_STEPS = (
         object_name="messages",
         exists_sql="SELECT to_regclass('messages') IS NOT NULL;",
     ),
+    MigrationStep(
+        path=MIGRATION_DIR / "0008_attachments.sql",
+        object_kind="table",
+        object_name="attachments",
+        exists_sql="SELECT to_regclass('attachments') IS NOT NULL;",
+    ),
 )
 
 
