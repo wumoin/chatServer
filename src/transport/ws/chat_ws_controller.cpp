@@ -246,6 +246,27 @@ void ChatWsController::handleNewMessage(
             << "收到 ws.send，route=" << sendPayload.route
             << " request_id=" << envelope.requestId;
 
+        const auto context = wsSessionService_.connectionContext(connection);
+        if (!context.has_value())
+        {
+            sendError(connection,
+                      envelope.requestId,
+                      protocol::error::ErrorCode::kInvalidAccessToken,
+                      "当前 WebSocket 连接尚未完成认证");
+            connection->shutdown(drogon::CloseCode::kViolation,
+                                 "当前 WebSocket 连接尚未完成认证");
+            return;
+        }
+
+        if (sendPayload.route == "message.send_text")
+        {
+            wsMessageService_.handleSendTextMessage(std::move(sendPayload.data),
+                                                   envelope.requestId,
+                                                   *context,
+                                                   connection);
+            return;
+        }
+
         realtimePushService_.pushAckToConnection(
             connection,
             envelope.requestId,

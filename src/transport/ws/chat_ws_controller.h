@@ -1,6 +1,7 @@
 #pragma once
 
 #include "service/realtime_push_service.h"
+#include "service/ws_message_service.h"
 #include "service/ws_session_service.h"
 
 #include <drogon/WebSocketController.h>
@@ -53,6 +54,7 @@ class ChatWsController
 
   private:
     service::RealtimePushService realtimePushService_;
+    service::WsMessageService wsMessageService_;
     service::WsSessionService wsSessionService_;
 };
 

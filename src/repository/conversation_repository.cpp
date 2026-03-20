@@ -163,6 +163,13 @@ WHERE self.user_id = $1
 LIMIT 1
 )SQL";
 
+constexpr auto kListConversationMemberUserIdsSql = R"SQL(
+SELECT user_id
+FROM conversation_members
+WHERE conversation_id = $1
+ORDER BY user_id ASC
+)SQL";
+
 constexpr auto kListLatestMessagesSql = R"SQL(
 WITH selected AS (
     SELECT
@@ -534,6 +541,38 @@ void ConversationRepository::findConversationDetail(
             },
             std::move(userId),
             std::move(conversationId));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
+    }
+}
+
+void ConversationRepository::listConversationMemberUserIds(
+    std::string conversationId,
+    ListConversationMemberUserIdsSuccess &&onSuccess,
+    RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+        client->execSqlAsync(
+            kListConversationMemberUserIdsSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                std::vector<std::string> userIds;
+                userIds.reserve(rows.size());
+                for (const auto &row : rows)
+                {
+                    userIds.push_back(row["user_id"].as<std::string>());
+                }
+                onSuccess(std::move(userIds));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            conversationId);
     }
     catch (const std::exception &exception)
     {

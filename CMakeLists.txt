@@ -137,6 +137,7 @@ add_executable(chatServer
     src/service/friend_service.cpp
     src/service/realtime_push_service.cpp
     src/service/user_service.cpp
+    src/service/ws_message_service.cpp
     src/service/ws_session_service.cpp
     src/app/application.cpp
     src/transport/http/auth_controller.cpp

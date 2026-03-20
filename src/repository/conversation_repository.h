@@ -148,6 +148,8 @@ class ConversationRepository
         std::function<void(std::optional<ConversationDetailRecord>)>;
     using ListConversationsSuccess =
         std::function<void(std::vector<ConversationListItemRecord>)>;
+    using ListConversationMemberUserIdsSuccess =
+        std::function<void(std::vector<std::string>)>;
     using ListMessagesSuccess = std::function<void(ListMessagesResult)>;
     using CreateTextMessageSuccess =
         std::function<void(ConversationMessageRecord)>;
@@ -197,6 +199,17 @@ class ConversationRepository
                                 std::string conversationId,
                                 FindConversationDetailSuccess &&onSuccess,
                                 RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 查询指定会话的全部成员用户 ID。
+     * @param conversationId 会话 ID。
+     * @param onSuccess 查询成功后的回调。
+     * @param onFailure 查询失败后的回调。
+     */
+    void listConversationMemberUserIds(
+        std::string conversationId,
+        ListConversationMemberUserIdsSuccess &&onSuccess,
+        RepositoryFailure &&onFailure) const;
 
     /**
      * @brief 查询历史消息分页结果。
