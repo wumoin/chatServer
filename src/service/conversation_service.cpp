@@ -172,17 +172,48 @@ void ConversationService::createOrFindPrivateConversation(
                                     // HTTP 主流程成功后，再做最佳努力实时通知。
                                     // 即使对端当前不在线，私聊创建本身也已经成立，不应该回滚。
                                     //
-                                    // TODO: 当前这里直接把创建者视角的 ConversationView 推给对端。
-                                    // 由于 ConversationListItemView 是视角敏感 DTO，严格来说应按
-                                    // peerUserId 再回读一次会话项后再做 push，才能保证 peer_user 正确。
-                                    Json::Value payload(Json::objectValue);
-                                    payload["conversation"] =
-                                        protocol::dto::conversation::toJson(
-                                            view);
-                                    realtimePushService_.pushNewToUser(
+                                    // conversation list item 是“视角敏感 DTO”：
+                                    // - 对 Alice 来说 peer_user 应该是 Bob；
+                                    // - 对 Bob 来说 peer_user 应该是 Alice；
+                                    // - unread / last_read 也同样依赖接收方身份。
+                                    //
+                                    // 因此这里不能直接把“创建者视角”的 view 原样推给对端，
+                                    // 而是需要按接收方 user_id 再回读一遍会话摘要，然后再推送。
+                                    conversationRepository_.findConversationItem(
                                         peerUserId,
-                                        "conversation.created",
-                                        std::move(payload));
+                                        view.conversationId,
+                                        [peerUserId, this](
+                                            std::optional<repository::ConversationListItemRecord>
+                                                recipientItem) mutable {
+                                            if (!recipientItem.has_value())
+                                            {
+                                                CHATSERVER_LOG_WARN(
+                                                    kConversationLogTag)
+                                                    << "实时推送会话创建事件前，未能按接收方视角回读会话摘要，user_id="
+                                                    << peerUserId;
+                                                return;
+                                            }
+
+                                            Json::Value payload(
+                                                Json::objectValue);
+                                            payload["conversation"] =
+                                                protocol::dto::conversation::
+                                                    toJson(toConversationView(
+                                                        *recipientItem));
+                                            realtimePushService_.pushNewToUser(
+                                                peerUserId,
+                                                "conversation.created",
+                                                std::move(payload));
+                                        },
+                                        [peerUserId](
+                                            std::string message) mutable {
+                                            CHATSERVER_LOG_WARN(
+                                                kConversationLogTag)
+                                                << "按接收方视角组装 conversation.created 失败，user_id="
+                                                << peerUserId
+                                                << " message="
+                                                << message;
+                                        });
                                 },
                                 [sharedFailure](std::string message) mutable {
                                     CHATSERVER_LOG_ERROR(kConversationLogTag)
