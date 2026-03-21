@@ -29,6 +29,11 @@ std::string trimCopy(const std::string &value)
     return value.substr(begin, end - begin + 1);
 }
 
+std::string buildAttachmentDownloadUrl(const std::string &attachmentId)
+{
+    return "/api/v1/files/" + attachmentId;
+}
+
 protocol::dto::conversation::ConversationMessageView toMessageView(
     const repository::ConversationMessageRecord &item)
 {
@@ -269,6 +274,263 @@ void WsMessageService::handleSendTextMessage(
                 *sharedConnection,
                 *sharedRequestId,
                 "message.send_text",
+                false,
+                protocol::error::ErrorCode::kInternalError,
+                "failed to query conversation");
+        });
+}
+
+void WsMessageService::handleSendImageMessage(
+    Json::Value data,
+    std::string requestId,
+    WsConnectionContext context,
+    const drogon::WebSocketConnectionPtr &connection) const
+{
+    // 图片消息链路在文本消息的基础上多了一层“临时附件 -> 正式附件”的确认：
+    // 1. 校验 payload / conversation_id / attachment_upload_key
+    // 2. 校验当前用户是否属于目标会话
+    // 3. 把临时附件准备成正式附件
+    // 4. 写入 image 消息
+    // 5. 给发送方回 ws.ack(message.send_image)
+    // 6. 给在线成员推 ws.new(message.created)
+    if (connection == nullptr)
+    {
+        return;
+    }
+
+    if (!data.isObject())
+    {
+        realtimePushService_.pushAckToConnection(
+            connection,
+            requestId,
+            "message.send_image",
+            false,
+            protocol::error::ErrorCode::kInvalidArgument,
+            "ws.send payload.data must be an object");
+        return;
+    }
+
+    if (!data.isMember("conversation_id") ||
+        !data["conversation_id"].isString())
+    {
+        realtimePushService_.pushAckToConnection(
+            connection,
+            requestId,
+            "message.send_image",
+            false,
+            protocol::error::ErrorCode::kInvalidArgument,
+            "field 'conversation_id' must be a string");
+        return;
+    }
+
+    std::string conversationId = trimCopy(data["conversation_id"].asString());
+    if (conversationId.empty())
+    {
+        realtimePushService_.pushAckToConnection(
+            connection,
+            requestId,
+            "message.send_image",
+            false,
+            protocol::error::ErrorCode::kInvalidArgument,
+            "conversation_id is required");
+        return;
+    }
+
+    protocol::dto::conversation::SendImageMessageRequest request;
+    std::string parseError;
+    if (!protocol::dto::conversation::parseSendImageMessageRequest(
+            data, request, parseError))
+    {
+        realtimePushService_.pushAckToConnection(
+            connection,
+            requestId,
+            "message.send_image",
+            false,
+            protocol::error::ErrorCode::kInvalidArgument,
+            parseError);
+        return;
+    }
+
+    request.attachmentUploadKey = trimCopy(request.attachmentUploadKey);
+    if (request.attachmentUploadKey.empty())
+    {
+        realtimePushService_.pushAckToConnection(
+            connection,
+            requestId,
+            "message.send_image",
+            false,
+            protocol::error::ErrorCode::kInvalidArgument,
+            "attachment_upload_key is required");
+        return;
+    }
+
+    if (request.clientMessageId.has_value())
+    {
+        *request.clientMessageId = trimCopy(*request.clientMessageId);
+        if (request.clientMessageId->empty())
+        {
+            request.clientMessageId.reset();
+        }
+    }
+
+    if (request.caption.has_value())
+    {
+        *request.caption = trimCopy(*request.caption);
+        if (request.caption->empty())
+        {
+            request.caption.reset();
+        }
+        else if (request.caption->size() > 4000)
+        {
+            realtimePushService_.pushAckToConnection(
+                connection,
+                requestId,
+                "message.send_image",
+                false,
+                protocol::error::ErrorCode::kInvalidArgument,
+                "caption is too long");
+            return;
+        }
+    }
+
+    auto sharedConnection =
+        std::make_shared<drogon::WebSocketConnectionPtr>(connection);
+    auto sharedRequestId = std::make_shared<std::string>(std::move(requestId));
+    auto sharedContext = std::make_shared<WsConnectionContext>(std::move(context));
+
+    CHATSERVER_LOG_INFO(kWsMessageLogTag)
+        << "开始处理图片消息，conversation_id=" << conversationId
+        << " sender_id=" << sharedContext->userId
+        << " upload_key=" << request.attachmentUploadKey;
+
+    const std::string requestConversationId = conversationId;
+    conversationRepository_.listConversationMemberUserIds(
+        requestConversationId,
+        [this,
+         conversationId = requestConversationId,
+         request = std::move(request),
+         sharedConnection,
+         sharedRequestId,
+         sharedContext](
+            std::vector<std::string> userIds) mutable {
+            CHATSERVER_LOG_INFO(kWsMessageLogTag)
+                << "图片消息成员查询完成，conversation_id=" << conversationId
+                << " sender_id=" << sharedContext->userId
+                << " member_count=" << userIds.size();
+            const auto memberIt = std::find(userIds.begin(),
+                                            userIds.end(),
+                                            sharedContext->userId);
+            if (memberIt == userIds.end())
+            {
+                realtimePushService_.pushAckToConnection(
+                    *sharedConnection,
+                    *sharedRequestId,
+                    "message.send_image",
+                    false,
+                    protocol::error::ErrorCode::kNotFound,
+                    "conversation not found");
+                return;
+            }
+
+            fileService_.prepareAttachmentForMessage(
+                request.attachmentUploadKey,
+                sharedContext->userId,
+                std::optional<std::string>("image"),
+                [this,
+                 userIds = std::move(userIds),
+                 conversationId,
+                 request = std::move(request),
+                 sharedConnection,
+                 sharedRequestId](
+                    PreparedAttachmentResult prepared) mutable {
+                    infra::id::IdGenerator idGenerator;
+                    repository::CreateImageMessageParams params;
+                    params.messageId = idGenerator.nextMessageId();
+                    params.conversationId = conversationId;
+                    params.senderId = prepared.attachment.uploaderUserId;
+                    params.clientMessageId = request.clientMessageId;
+                    params.attachmentId = prepared.attachment.attachmentId;
+                    params.fileName = prepared.attachment.originalFileName;
+                    params.mimeType = prepared.attachment.mimeType;
+                    params.sizeBytes = prepared.attachment.sizeBytes;
+                    params.downloadUrl = buildAttachmentDownloadUrl(
+                        prepared.attachment.attachmentId);
+                    params.caption = request.caption;
+                    params.imageWidth = prepared.attachment.imageWidth;
+                    params.imageHeight = prepared.attachment.imageHeight;
+
+                    conversationRepository_.createImageMessage(
+                        std::move(params),
+                        [this,
+                         prepared = std::move(prepared),
+                         userIds = std::move(userIds),
+                         sharedConnection,
+                         sharedRequestId](
+                            repository::ConversationMessageRecord record) mutable {
+                            auto view = toMessageView(record);
+
+                            realtimePushService_.pushAckToConnection(
+                                *sharedConnection,
+                                *sharedRequestId,
+                                "message.send_image",
+                                true,
+                                protocol::error::ErrorCode::kOk,
+                                "ok",
+                                buildAckData(view));
+
+                            Json::Value newData =
+                                protocol::dto::conversation::toJson(view);
+
+                            realtimePushService_.pushNewToUsers(
+                                userIds,
+                                "message.created",
+                                std::move(newData));
+
+                            // 只有在正式消息已经落库并广播之后，临时上传才算真正完成使命。
+                            fileService_.removeTemporaryUploadQuietly(
+                                prepared.attachmentUploadKey);
+                        },
+                        [this,
+                         prepared = std::move(prepared),
+                         sharedConnection,
+                         sharedRequestId](std::string message) mutable {
+                            CHATSERVER_LOG_ERROR(kWsMessageLogTag)
+                                << "写入图片消息失败：" << message;
+                            fileService_.rollbackPreparedAttachmentQuietly(
+                                prepared.attachment);
+                            realtimePushService_.pushAckToConnection(
+                                *sharedConnection,
+                                *sharedRequestId,
+                                "message.send_image",
+                                false,
+                                protocol::error::ErrorCode::kInternalError,
+                                "failed to create message");
+                        });
+                },
+                [this, sharedConnection, sharedRequestId](
+                    ServiceError error) mutable {
+                    CHATSERVER_LOG_WARN(kWsMessageLogTag)
+                        << "准备正式图片附件失败，code="
+                        << static_cast<int>(error.code) << " message="
+                        << error.message;
+                    realtimePushService_.pushAckToConnection(
+                        *sharedConnection,
+                        *sharedRequestId,
+                        "message.send_image",
+                        false,
+                        error.code,
+                        error.message);
+                });
+        },
+        [this, sharedConnection, sharedRequestId, conversationId](
+            std::string message) mutable {
+            CHATSERVER_LOG_ERROR(kWsMessageLogTag)
+                << "发送图片消息前查询会话失败，conversation_id=" << conversationId
+                << " 原因：" << message;
+            realtimePushService_.pushAckToConnection(
+                *sharedConnection,
+                *sharedRequestId,
+                "message.send_image",
                 false,
                 protocol::error::ErrorCode::kInternalError,
                 "failed to query conversation");

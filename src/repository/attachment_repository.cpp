@@ -59,6 +59,11 @@ WHERE attachment_id = $1
 LIMIT 1
 )SQL";
 
+constexpr auto kDeleteAttachmentByIdSql = R"SQL(
+DELETE FROM attachments
+WHERE attachment_id = $1
+)SQL";
+
 AttachmentRecord toAttachmentRecord(const drogon::orm::Row &row)
 {
     // repository 层负责把底层 Row 转成稳定的业务记录结构，
@@ -155,6 +160,33 @@ void AttachmentRepository::findAttachmentById(
                 }
 
                 onSuccess(toAttachmentRecord(rows[0]));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            std::move(attachmentId));
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
+    }
+}
+
+void AttachmentRepository::deleteAttachmentById(
+    std::string attachmentId,
+    DeleteAttachmentSuccess &&onSuccess,
+    RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+        // 这里的删除主要服务于“已准备正式附件，但后续消息落库失败”的补偿路径。
+        client->execSqlAsync(
+            kDeleteAttachmentByIdSql,
+            [onSuccess = std::move(onSuccess)](
+                const drogon::orm::Result &rows) mutable {
+                onSuccess(rows.affectedRows() > 0);
             },
             [onFailure = std::move(onFailure)](
                 const drogon::orm::DrogonDbException &exception) mutable {

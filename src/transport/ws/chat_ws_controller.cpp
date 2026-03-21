@@ -279,6 +279,17 @@ void ChatWsController::handleNewMessage(
             return;
         }
 
+        if (sendPayload.route == "message.send_image")
+        {
+            // 图片消息和文本消息共用同一套 ws.send / ws.ack / ws.new 外壳，
+            // 只是在 service 层内部多了一步“临时附件确认成正式附件”。
+            wsMessageService_.handleSendImageMessage(std::move(sendPayload.data),
+                                                    envelope.requestId,
+                                                    *context,
+                                                    connection);
+            return;
+        }
+
         realtimePushService_.pushAckToConnection(
             connection,
             envelope.requestId,

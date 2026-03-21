@@ -46,6 +46,7 @@ class AttachmentRepository
     using CreateAttachmentSuccess = std::function<void(AttachmentRecord)>;
     using FindAttachmentByIdSuccess =
         std::function<void(std::optional<AttachmentRecord>)>;
+    using DeleteAttachmentSuccess = std::function<void(bool)>;
     using RepositoryFailure = std::function<void(std::string)>;
 
     /**
@@ -67,6 +68,16 @@ class AttachmentRepository
     void findAttachmentById(std::string attachmentId,
                             FindAttachmentByIdSuccess &&onSuccess,
                             RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 按附件 ID 删除一条附件元数据记录。
+     * @param attachmentId 待删除的附件 ID。
+     * @param onSuccess 删除完成回调；参数表示是否真的删到了记录。
+     * @param onFailure 删除失败回调。
+     */
+    void deleteAttachmentById(std::string attachmentId,
+                              DeleteAttachmentSuccess &&onSuccess,
+                              RepositoryFailure &&onFailure) const;
 
   private:
     /**

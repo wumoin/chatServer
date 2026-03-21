@@ -275,6 +275,57 @@ RETURNING
     (EXTRACT(EPOCH FROM created_at) * 1000)::BIGINT AS created_at_ms
 )SQL";
 
+constexpr auto kInsertImageMessageSql = R"SQL(
+WITH updated_conversation AS (
+    UPDATE conversations
+    SET
+        last_message_seq = last_message_seq + 1,
+        last_message_at = NOW()
+    WHERE conversation_id = $1
+    RETURNING last_message_seq
+)
+INSERT INTO messages (
+    message_id,
+    conversation_id,
+    seq,
+    sender_id,
+    client_message_id,
+    message_type,
+    content_json
+)
+    SELECT
+        $2,
+        $1,
+        uc.last_message_seq,
+        $3,
+        $4,
+        'image',
+        jsonb_strip_nulls(
+            jsonb_build_object(
+                'attachment_id', $5::TEXT,
+                'file_name', $6::TEXT,
+                'mime_type', $7::TEXT,
+                'size', $8::BIGINT,
+                'size_bytes', $8::BIGINT,
+                'url', $9::TEXT,
+                'download_url', $9::TEXT,
+                'caption', $10::TEXT,
+                'width', $11::INT,
+                'height', $12::INT
+            )
+        )
+    FROM updated_conversation uc
+RETURNING
+    message_id,
+    conversation_id,
+    seq,
+    sender_id,
+    client_message_id,
+    message_type,
+    content_json::TEXT AS content_json_text,
+    (EXTRACT(EPOCH FROM created_at) * 1000)::BIGINT AS created_at_ms
+)SQL";
+
 Json::Value parseJsonText(const std::string &jsonText)
 {
     Json::CharReaderBuilder builder;
@@ -688,6 +739,49 @@ void ConversationRepository::createTextMessage(
             params.senderId,
             params.clientMessageId,
             params.text);
+    }
+    catch (const std::exception &exception)
+    {
+        onFailure(exception.what());
+    }
+}
+
+void ConversationRepository::createImageMessage(
+    CreateImageMessageParams params,
+    CreateImageMessageSuccess &&onSuccess,
+    RepositoryFailure &&onFailure) const
+{
+    try
+    {
+        auto client = dbClient();
+        client->execSqlAsync(
+            kInsertImageMessageSql,
+            [onSuccess = std::move(onSuccess),
+             onFailure = std::move(onFailure)](
+                const drogon::orm::Result &rows) mutable {
+                if (rows.empty())
+                {
+                    onFailure("insert image message returned no rows");
+                    return;
+                }
+                onSuccess(toConversationMessageRecord(rows[0]));
+            },
+            [onFailure = std::move(onFailure)](
+                const drogon::orm::DrogonDbException &exception) mutable {
+                onFailure(exception.base().what());
+            },
+            params.conversationId,
+            params.messageId,
+            params.senderId,
+            params.clientMessageId,
+            params.attachmentId,
+            params.fileName,
+            params.mimeType,
+            params.sizeBytes,
+            params.downloadUrl,
+            params.caption,
+            params.imageWidth,
+            params.imageHeight);
     }
     catch (const std::exception &exception)
     {

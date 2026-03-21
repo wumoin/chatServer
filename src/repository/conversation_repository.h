@@ -137,6 +137,28 @@ struct CreateTextMessageParams
     std::string text;
 };
 
+/**
+ * @brief 发送图片消息时需要落库的最小字段集合。
+ *
+ * 这里保存的是消息最终展示所需的附件摘要，而不是临时上传态的引用。
+ * 一旦消息写入成功，客户端后续只需要依赖 message.content 里的正式字段。
+ */
+struct CreateImageMessageParams
+{
+    std::string messageId;
+    std::string conversationId;
+    std::string senderId;
+    std::optional<std::string> clientMessageId;
+    std::string attachmentId;
+    std::string fileName;
+    std::string mimeType;
+    std::int64_t sizeBytes{0};
+    std::string downloadUrl;
+    std::optional<std::string> caption;
+    std::optional<int> imageWidth;
+    std::optional<int> imageHeight;
+};
+
 class ConversationRepository
 {
   public:
@@ -152,6 +174,8 @@ class ConversationRepository
         std::function<void(std::vector<std::string>)>;
     using ListMessagesSuccess = std::function<void(ListMessagesResult)>;
     using CreateTextMessageSuccess =
+        std::function<void(ConversationMessageRecord)>;
+    using CreateImageMessageSuccess =
         std::function<void(ConversationMessageRecord)>;
     using RepositoryFailure = std::function<void(std::string)>;
 
@@ -230,6 +254,16 @@ class ConversationRepository
     void createTextMessage(CreateTextMessageParams params,
                            CreateTextMessageSuccess &&onSuccess,
                            RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 向指定会话写入一条图片消息。
+     * @param params 待写入数据库的图片消息字段。
+     * @param onSuccess 写入成功后的回调。
+     * @param onFailure 写入失败后的回调。
+     */
+    void createImageMessage(CreateImageMessageParams params,
+                            CreateImageMessageSuccess &&onSuccess,
+                            RepositoryFailure &&onFailure) const;
 
   private:
     /**

@@ -9,6 +9,7 @@
 #include <cctype>
 #include <memory>
 #include <optional>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -187,6 +188,39 @@ const drogon::HttpFile *resolveUploadFile(const drogon::MultiPartParser &parser)
     return &files.front();
 }
 
+std::optional<int> resolveOptionalPositiveIntParameter(
+    const drogon::MultiPartParser &parser,
+    const std::string &key)
+{
+    const auto &parameters = parser.getParameters();
+    const auto it = parameters.find(key);
+    if (it == parameters.end())
+    {
+        return std::nullopt;
+    }
+
+    const std::string trimmedValue = trimCopy(it->second);
+    if (trimmedValue.empty())
+    {
+        return std::nullopt;
+    }
+
+    try
+    {
+        const long long parsed = std::stoll(trimmedValue);
+        if (parsed <= 0 ||
+            parsed > static_cast<long long>(std::numeric_limits<int>::max()))
+        {
+            return std::nullopt;
+        }
+        return static_cast<int>(parsed);
+    }
+    catch (const std::exception &)
+    {
+        return std::nullopt;
+    }
+}
+
 }  // namespace
 
 void FileController::uploadFile(
@@ -236,21 +270,34 @@ void FileController::uploadFile(
         return;
     }
 
-    service::UploadAttachmentRequest uploadRequest;
+    service::TemporaryAttachmentUploadRequest uploadRequest;
     uploadRequest.originalFileName = file->getFileName();
     uploadRequest.mimeType = resolveMimeType(*file);
     uploadRequest.mediaKind = resolveMediaKind(*file);
+    uploadRequest.imageWidth =
+        resolveOptionalPositiveIntParameter(parser, "image_width");
+    uploadRequest.imageHeight =
+        resolveOptionalPositiveIntParameter(parser, "image_height");
     // controller 负责把 multipart 文件对象压成统一内存请求，
-    // 后续落盘、生成 storage key、返回附件视图都由 FileService 处理。
+    // 后续临时落盘、生成 upload key、写 meta 文件都由 FileService 处理。
     uploadRequest.content.assign(file->fileData(), file->fileLength());
 
-    fileService_.uploadAttachment(
+    fileService_.uploadTemporaryAttachment(
         std::move(uploadRequest),
         *accessToken,
         [sharedCallback, requestId](
-            protocol::dto::file::AttachmentView attachment) mutable {
+            service::TemporaryAttachmentUploadView upload) mutable {
             Json::Value data(Json::objectValue);
-            data["attachment"] = protocol::dto::file::toJson(attachment);
+            data["upload"] = protocol::dto::file::toJson(
+                protocol::dto::file::TemporaryAttachmentUploadView{
+                    upload.attachmentUploadKey,
+                    upload.fileName,
+                    upload.mimeType,
+                    upload.sizeBytes,
+                    upload.mediaKind,
+                    upload.imageWidth,
+                    upload.imageHeight,
+                });
             (*sharedCallback)(makeResponse(
                 drogon::k201Created,
                 requestId,

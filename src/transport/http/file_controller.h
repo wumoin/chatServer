@@ -19,7 +19,7 @@ class FileController : public drogon::HttpController<FileController>
     METHOD_LIST_END
 
     /**
-     * @brief 上传一个聊天附件文件。
+     * @brief 上传一个临时聊天附件文件。
      * @param request HTTP 请求对象。
      * @param callback HTTP 响应回调。
      */
