@@ -56,6 +56,8 @@ LIMIT 1
 )SQL";
 
 constexpr auto kListConversationsSql = R"SQL(
+-- 这里的 peer_user 是“相对 self.user_id 的另一位成员”。
+-- 因而查询结果天然带有调用者视角：同一会话对不同用户查询，peer_user 会不同。
 SELECT
     c.conversation_id,
     c.conversation_type,
@@ -90,6 +92,8 @@ ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.conversation_id ASC
 )SQL";
 
 constexpr auto kFindConversationItemSql = R"SQL(
+-- 与 listConversations 一样，这里的 peer_user 也是相对 self.user_id 解析出来的。
+-- 上层如果要把结果转发给别的用户，必须按接收方 user_id 重新查询，不能直接复用。
 SELECT
     c.conversation_id,
     c.conversation_type,

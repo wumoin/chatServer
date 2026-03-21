@@ -75,6 +75,9 @@ void WsMessageService::handleSendTextMessage(
     // 3. 写入 messages
     // 4. 给发送方回 ws.ack
     // 5. 给会话在线成员推 ws.new(message.created)
+    //
+    // 和 HTTP send-text 不同，WS 路径本身承担了“确认 + fan-out”这两个实时职责，
+    // 因此当前它才是完整的在线文本消息链路。
     if (connection == nullptr)
     {
         return;

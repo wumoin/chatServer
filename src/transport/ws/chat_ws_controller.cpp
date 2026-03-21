@@ -53,6 +53,8 @@ void sendEnvelope(const drogon::WebSocketConnectionPtr &connection,
                   std::string requestId,
                   Json::Value payload)
 {
+    // 所有服务端 WS 下行消息都统一包成同一种 envelope，
+    // 这样客户端只需要先按 type 分发，再解析具体 payload。
     protocol::dto::ws::WsEnvelope envelope;
     envelope.version = 1;
     envelope.type = std::move(type);
@@ -198,6 +200,7 @@ void ChatWsController::handleNewMessage(
                 payload.userId = std::move(context.userId);
                 payload.deviceSessionId = std::move(context.deviceSessionId);
 
+                // 认证成功后，这条连接才正式进入“某个 device_session 的在线连接表”。
                 CHATSERVER_LOG_INFO(kWsLogTag)
                     << "ws.auth 已通过，device_session_id="
                     << payload.deviceSessionId;
@@ -268,6 +271,7 @@ void ChatWsController::handleNewMessage(
         if (sendPayload.route == "message.send_text")
         {
             // 第一条真实 ws.send 路由：发送文本消息。
+            // 这里的 controller 只做顶层协议分流，不参与真正的消息落库。
             wsMessageService_.handleSendTextMessage(std::move(sendPayload.data),
                                                    envelope.requestId,
                                                    *context,
@@ -312,6 +316,7 @@ void ChatWsController::handleConnectionClosed(
         connection != nullptr ? connection->disconnected() : false;
 
     // 连接关闭后必须从在线连接表里移除，否则后续推送会继续命中一条已经失效的连接。
+    // 这里先取一份旧 context 只是为了后面打印审计日志，真正状态清理由 session service 完成。
     wsSessionService_.handleConnectionClosed(connection);
     if (context.has_value())
     {

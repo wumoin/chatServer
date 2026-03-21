@@ -30,6 +30,7 @@ struct SaveFileRequest
     FileCategory category{FileCategory::kAttachment};
     std::string originalFileName;
     std::string contentType;
+    // 调用方可显式指定 storage key；为空时由底层存储自行生成。
     std::string preferredStorageKey;
 };
 
@@ -39,6 +40,7 @@ struct SaveFileRequest
 struct StoredFileInfo
 {
     FileCategory category{FileCategory::kAttachment};
+    // storageKey 是上层长期保存到数据库里的稳定引用。
     std::string storageKey;
     std::string relativePath;
     std::string absolutePath;
@@ -114,6 +116,7 @@ class FileStorage
  *
  * 当前阶段先用一个全局默认实例承接文件存储能力，
  * 让后续 controller / service 可以不必自己管理存储实现的生命周期。
+ * 它更像一个启动期装配好的 service locator，而不是业务态可频繁切换的配置中心。
  */
 class StorageRegistry
 {

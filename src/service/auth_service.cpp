@@ -266,6 +266,9 @@ void AuthService::loginUser(protocol::dto::auth::LoginRequest request,
                 infra::id::IdGenerator idGenerator;
                 infra::security::TokenProvider tokenProvider;
 
+                // 这里生成的 device_session_id 不是附属字段，而是“这次登录”的主标识。
+                // access token 只把 user_id / device_session_id 带给后续链路；
+                // 只有 active device_session 成功落库后，这次登录才算完整成立。
                 const std::string deviceSessionId =
                     idGenerator.nextDeviceSessionId();
                 const std::string accessToken = tokenProvider.issueAccessToken(
@@ -396,6 +399,10 @@ void AuthService::logoutUser(std::string accessToken,
     revokeParams.deviceSessionId = claims.deviceSessionId;
     revokeParams.revokeReason = "logout";
 
+    // 当前登出撤销的是 device_session，而不是给 JWT 建黑名单。
+    // 因而 logout 成功后：
+    // 1) WS 鉴权会因为 active session 不存在而立即失效；
+    // 2) 只校验 access token 自身的 HTTP 入口，要等 token 自然过期后才会完全收敛。
     // 当前登出语义是：
     // 1) access token 合法 -> 定位唯一 device_session；
     // 2) active -> 改成 revoked/logout；

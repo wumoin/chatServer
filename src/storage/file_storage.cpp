@@ -22,6 +22,7 @@ void StorageRegistry::setDefaultStorage(std::shared_ptr<FileStorage> storage)
     }
 
     std::lock_guard<std::mutex> lock(g_storageMutex);
+    // 启动阶段允许后写覆盖前写，但业务代码始终只看“当前默认实例”。
     g_defaultStorage = std::move(storage);
 }
 

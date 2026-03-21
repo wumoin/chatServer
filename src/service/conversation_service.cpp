@@ -151,6 +151,8 @@ void ConversationService::createOrFindPrivateConversation(
                         std::move(params),
                         [claims, peerUserId, sharedSuccess, sharedFailure, this](
                             repository::CreateOrFindDirectConversationResult result) mutable {
+                            // findConversationItem 返回的 peer_user 是相对第一个参数 user_id 的视角。
+                            // 因而同一条 conversation，如果按 Alice 查和按 Bob 查，peer_user 会不同。
                             conversationRepository_.findConversationItem(
                                 claims.userId,
                                 result.conversationId,
@@ -169,6 +171,10 @@ void ConversationService::createOrFindPrivateConversation(
 
                                     // HTTP 主流程成功后，再做最佳努力实时通知。
                                     // 即使对端当前不在线，私聊创建本身也已经成立，不应该回滚。
+                                    //
+                                    // TODO: 当前这里直接把创建者视角的 ConversationView 推给对端。
+                                    // 由于 ConversationListItemView 是视角敏感 DTO，严格来说应按
+                                    // peerUserId 再回读一次会话项后再做 push，才能保证 peer_user 正确。
                                     Json::Value payload(Json::objectValue);
                                     payload["conversation"] =
                                         protocol::dto::conversation::toJson(
@@ -472,6 +478,9 @@ void ConversationService::sendTextMessage(
     // 1. 先确认当前用户是会话成员；
     // 2. 再创建消息；
     // 3. 最后把仓储记录映射成统一 MessageView 返回给客户端。
+    //
+    // 但它当前只负责“同步写入 + HTTP 响应”，不会像 WS 路径那样再广播
+    // message.created；因此两条发送路径暂时还不是完全等价的实时语义。
     conversationRepository_.findConversationItem(
         claims.userId,
         conversationId,
@@ -533,6 +542,8 @@ bool ConversationService::resolveCurrentUserClaims(
 {
     const std::string normalizedToken = trimCopy(accessToken);
     infra::security::TokenProvider tokenProvider;
+    // 这里当前只验证 access token 本身，不回查 active device_session。
+    // 这让大多数 HTTP 入口保持轻量，但也意味着它们的失效语义比 WS 更宽松。
     if (normalizedToken.empty() ||
         !tokenProvider.verifyAccessToken(normalizedToken, &claims))
     {

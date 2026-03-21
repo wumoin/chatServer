@@ -14,6 +14,7 @@ namespace chatserver::storage {
 struct LocalStorageSettings
 {
     std::filesystem::path rootDir;
+    // 临时对象、正式附件、正式头像三类文件目录分开，便于后续清理策略分层。
     std::filesystem::path temporaryDir;
     std::filesystem::path attachmentsDir;
     std::filesystem::path avatarsDir;

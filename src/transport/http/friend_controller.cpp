@@ -149,6 +149,8 @@ void FriendController::listFriends(
         return;
     }
 
+    // 这里给出的只是正式好友关系的当前快照，
+    // 不包含 pending 申请，也不负责实时增量推送。
     friendService_.listFriends(
         *accessToken,
         [sharedCallback, requestId](
@@ -217,6 +219,8 @@ void FriendController::sendFriendRequest(
         return;
     }
 
+    // 发送申请成功后只回显本次 friend_request 视图。
+    // 后续是否刷新列表、是否推送给对方在线端，交给 service / realtime 层。
     friendService_.sendFriendRequest(
         std::move(sendRequest),
         *accessToken,
@@ -261,6 +265,7 @@ void FriendController::listIncomingFriendRequests(
         return;
     }
 
+    // “收到的申请”主要服务于审批 UI。
     friendService_.listIncomingFriendRequests(
         *accessToken,
         [sharedCallback, requestId](
@@ -304,6 +309,7 @@ void FriendController::listOutgoingFriendRequests(
         return;
     }
 
+    // “发出的申请”是发起方视角的快照，不代表已经建立好友关系。
     friendService_.listOutgoingFriendRequests(
         *accessToken,
         [sharedCallback, requestId](
@@ -348,6 +354,8 @@ void FriendController::acceptFriendRequest(
         return;
     }
 
+    // 同意申请后，service 侧可能顺带创建双向好友关系和私聊会话。
+    // controller 只负责返回最终这条申请的最新视图。
     friendService_.acceptFriendRequest(
         std::move(requestId),
         *accessToken,
@@ -393,6 +401,7 @@ void FriendController::rejectFriendRequest(
         return;
     }
 
+    // 拒绝申请只改变申请状态，不会生成正式好友关系。
     friendService_.rejectFriendRequest(
         std::move(requestId),
         *accessToken,

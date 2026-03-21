@@ -160,6 +160,8 @@ void UserController::searchUserByAccount(
         return;
     }
 
+    // 搜索用户是只读查询：
+    // 它只返回“该账号是否存在以及基础资料”，不在这里做任何好友或会话副作用。
     userService_.searchUserByAccount(
         *account,
         *accessToken,
@@ -226,6 +228,8 @@ void UserController::uploadTemporaryAvatar(
 
     service::TemporaryAvatarUploadRequest uploadRequest;
     uploadRequest.originalFileName = file.getFileName();
+    // 当前临时头像上传只关心“这是不是图片”和原始字节内容，
+    // 后续真正落为用户头像时再由 UserService 决定正式 storage key。
     uploadRequest.contentType = "image/upload";
     uploadRequest.content.assign(file.fileData(), file.fileLength());
 
@@ -274,6 +278,8 @@ void UserController::previewTemporaryAvatar(
         std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
             std::move(callback));
 
+    // 预览接口成功时直接回文件流，便于注册页立刻展示；
+    // 失败才回统一 JSON 错误响应。
     userService_.getTemporaryAvatarFile(
         *avatarUploadKey,
         [request, sharedCallback](
@@ -371,6 +377,8 @@ void UserController::getUserAvatar(
         std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
             std::move(callback));
 
+    // 正式头像下载接口当前按 user_id 公开读取，不额外要求 access token。
+    // controller 成功时直接返回文件流，交由客户端自行解码。
     userService_.getUserAvatarFile(
         std::move(userId),
         [request, sharedCallback](

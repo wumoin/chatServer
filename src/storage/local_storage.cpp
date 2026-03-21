@@ -83,6 +83,8 @@ bool isPathInsideRoot(const std::filesystem::path &path,
 
 LocalStorageSettings loadSettings(const std::string &configPath)
 {
+    // 本地存储目录既可以写绝对路径，也可以写相对 app.json 的路径。
+    // 解析完成后统一折算成规范化绝对路径，减少运行时歧义。
     std::ifstream input(configPath);
     if (!input.is_open())
     {
@@ -218,6 +220,7 @@ std::string generateStorageKey(FileCategory category,
 {
     if (!preferredKey.empty())
     {
+        // 显式指定 storage key 时也要做一次安全校验，防止把对象写出 root_dir。
         const auto normalized = std::filesystem::path(preferredKey).lexically_normal();
         if (normalized.is_absolute())
         {
@@ -312,6 +315,7 @@ StoredFileInfo LocalStorage::save(const SaveFileRequest &request,
 
     const auto tempPath = absolutePath.string() + ".part";
     {
+        // 先写 .part 临时文件，再 rename 成正式文件，避免中途失败留下半写入对象。
         std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
         if (!output.is_open())
         {
@@ -386,6 +390,7 @@ std::filesystem::path LocalStorage::resolveAbsolutePath(
 
     const auto resolvedPath =
         (settings_.rootDir / normalizedKey).lexically_normal();
+    // 即使前面已经过滤过 ".."，这里仍再做一次最终“必须留在 root_dir 内”的守卫。
     if (!isPathInsideRoot(resolvedPath, settings_.rootDir))
     {
         throw std::runtime_error("resolved local storage path escaped root_dir");

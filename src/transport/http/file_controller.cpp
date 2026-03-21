@@ -12,6 +12,11 @@
 #include <string>
 #include <string_view>
 
+// FileController 是聊天附件域的 HTTP 入口：
+// - uploadFile 负责认证、multipart 解析和统一响应；
+// - downloadFile 负责把 attachment_id 对应的文件直接流给客户端。
+//
+// 它不决定附件是否属于某个会话消息，也不直接操作数据库。
 namespace chatserver::transport::http {
 namespace {
 
@@ -156,6 +161,8 @@ std::string resolveMimeType(const drogon::HttpFile &file)
 
 std::string resolveMediaKind(const drogon::HttpFile &file)
 {
+    // 目前附件域只粗分成 image / file 两类，
+    // 更细的预览策略由客户端根据 mimeType 再细分。
     return file.getFileType() == drogon::FT_IMAGE ? "image" : "file";
 }
 
@@ -233,6 +240,8 @@ void FileController::uploadFile(
     uploadRequest.originalFileName = file->getFileName();
     uploadRequest.mimeType = resolveMimeType(*file);
     uploadRequest.mediaKind = resolveMediaKind(*file);
+    // controller 负责把 multipart 文件对象压成统一内存请求，
+    // 后续落盘、生成 storage key、返回附件视图都由 FileService 处理。
     uploadRequest.content.assign(file->fileData(), file->fileLength());
 
     fileService_.uploadAttachment(
@@ -286,6 +295,7 @@ void FileController::downloadFile(
         *accessToken,
         [request, sharedCallback](
             service::DownloadAttachmentResult result) mutable {
+            // 下载成功直接透传底层文件，避免再包 JSON 影响浏览器 / 客户端下载体验。
             (*sharedCallback)(drogon::HttpResponse::newFileResponse(
                 result.absolutePath,
                 "",

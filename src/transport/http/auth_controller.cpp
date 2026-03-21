@@ -248,6 +248,8 @@ void AuthController::loginUser(
     }
 
     service::LoginRequestContext context;
+    // 登录上下文里的 IP / User-Agent 只在 controller 采集一次，
+    // 后续 AuthService 可直接拿它补充 device_session 审计信息。
     context.loginIp = request->getPeerAddr().toIp();
     const auto userAgent = request->getHeader("User-Agent");
     if (!userAgent.empty())
@@ -260,6 +262,8 @@ void AuthController::loginUser(
         std::move(context),
         [sharedCallback, requestId](
             protocol::dto::auth::LoginResultView result) mutable {
+            // 登录成功响应里会同时返回用户视图、token 以及 device_session_id，
+            // 方便客户端一次性建立完整会话上下文。
             (*sharedCallback)(makeResponse(
                 drogon::k200OK,
                 requestId,
@@ -327,6 +331,7 @@ void AuthController::logoutUser(
         *accessToken,
         [sharedCallback, requestId]() mutable {
             // 登出成功后当前不返回额外业务字段，空 data 即可。
+            // 服务端真正完成的是“撤销当前 device_session 对应登录态”。
             (*sharedCallback)(makeResponse(
                 drogon::k200OK,
                 requestId,

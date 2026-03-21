@@ -139,6 +139,7 @@ void RealtimePushService::pushNewToDeviceSession(
     Json::Value data,
     const std::string &requestId) const
 {
+    // device_session 维度推送适合“只回给发起端这一台设备”的事件。
     auto connection =
         infra::ws::ConnectionRegistry::findConnectionByDeviceSessionId(
             deviceSessionId);
@@ -171,6 +172,8 @@ void RealtimePushService::pushNewToUser(const std::string &userId,
 
     for (std::size_t index = 0; index < connections.size(); ++index)
     {
+        // Json::Value 不能被多个发送分支共享 move 后对象，
+        // 因此除第一份之外都复制一份 payload。
         Json::Value payloadData =
             index == 0 ? data : data;
         pushNewToConnection(connections[index], route, std::move(payloadData), requestId);
@@ -200,6 +203,7 @@ void RealtimePushService::pushNewToUsers(const std::vector<std::string> &userIds
 
             if (!pushedConnections.insert(connection.get()).second)
             {
+                // 同一条物理连接可能同时被多个 user_id 查询路径命中，按连接再去重一次。
                 continue;
             }
 

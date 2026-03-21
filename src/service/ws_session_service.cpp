@@ -44,6 +44,11 @@ void WsSessionService::authenticateConnection(
 
     infra::security::TokenProvider tokenProvider;
     infra::security::AccessTokenClaims claims;
+    // WS 鉴权刻意比多数 HTTP 入口更严格：
+    // 1) 先验证 access token 自身；
+    // 2) 再校验 token 里的 device_session_id 与请求参数一致；
+    // 3) 最后回查 device_session 仍处于 active。
+    // 这样 logout / session revoke 后，实时通道可以立刻失效，不必等待 token 自然过期。
     if (!tokenProvider.verifyAccessToken(request.accessToken, &claims))
     {
         CHATSERVER_LOG_WARN(kWsAuthLogTag)

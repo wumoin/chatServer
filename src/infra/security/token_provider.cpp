@@ -87,6 +87,8 @@ void readOptionalString(const Json::Value &object,
 
 TokenSettings loadSettings(const std::string &configPath)
 {
+    // token_provider 当前不依赖 Drogon 配置对象，直接从 app.json 读取
+    // chatserver.auth 这一小段配置，保证它在 infra 层可独立初始化。
     std::ifstream input(configPath);
     if (!input.is_open())
     {
@@ -148,6 +150,8 @@ TokenSettings loadSettings(const std::string &configPath)
 
 std::string signPayload(const std::string &payload)
 {
+    // 当前 access token 不是标准 JWT，而是项目内的简化格式：
+    // prefix.base64(payload).sha256(secret.payload)
     const std::string raw = g_tokenState.settings.accessTokenSecret + "." + payload;
     return drogon::utils::getSha256(raw);
 }
@@ -205,6 +209,8 @@ bool TokenProvider::isInitialized()
 std::string TokenProvider::issueAccessToken(const std::string &userId,
                                             const std::string &deviceSessionId) const
 {
+    // access token 自包含最小 claims，便于 HTTP 和 WS 都能只靠 token 恢复
+    // user_id / device_session_id / 过期时间。
     Json::Value payload(Json::objectValue);
     payload["user_id"] = userId;
     payload["device_session_id"] = deviceSessionId;
@@ -219,6 +225,9 @@ std::string TokenProvider::issueAccessToken(const std::string &userId,
 bool TokenProvider::verifyAccessToken(const std::string &token,
                                       AccessTokenClaims *claims) const
 {
+    // 这里先验证“结构合法 + 签名正确 + claims 类型正确”。
+    // 是否已经过期留给调用方结合 claims.expiresAtSec 再判断，
+    // 这样不同入口可以决定自己的过期错误语义。
     const auto firstDot = token.find('.');
     const auto secondDot =
         firstDot == std::string::npos ? std::string::npos : token.find('.', firstDot + 1);
@@ -267,6 +276,7 @@ bool TokenProvider::verifyAccessToken(const std::string &token,
 
 std::string TokenProvider::issueRefreshToken() const
 {
+    // refresh token 走完全不透明的随机串方案，不自包含任何 claims。
     std::array<unsigned char, 32> bytes {};
     drogon::utils::secureRandomBytes(bytes.data(), bytes.size());
     return "refresh." +
@@ -275,6 +285,7 @@ std::string TokenProvider::issueRefreshToken() const
 
 std::string TokenProvider::hashOpaqueToken(const std::string &token) const
 {
+    // 数据库侧只保存 refresh token 哈希值，避免原文落库。
     return drogon::utils::getSha256(
         g_tokenState.settings.accessTokenSecret + "." + token);
 }

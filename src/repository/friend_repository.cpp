@@ -63,6 +63,7 @@ LIMIT 1
 )SQL";
 
 constexpr auto kListIncomingFriendRequestsSql = R"SQL(
+-- 收件箱视角：peer_user = requester。
 SELECT
     fr.request_id,
     fr.requester_id,
@@ -85,6 +86,7 @@ ORDER BY fr.created_at DESC
 )SQL";
 
 constexpr auto kListOutgoingFriendRequestsSql = R"SQL(
+-- 发件箱视角：peer_user = target。
 SELECT
     fr.request_id,
     fr.requester_id,

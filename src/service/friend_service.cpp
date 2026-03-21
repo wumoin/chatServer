@@ -218,6 +218,10 @@ void FriendService::sendFriendRequest(
                             (*sharedSuccess)(item);
 
                             // 目标用户在线时再做最佳努力推送；不在线不影响申请创建本身。
+                            //
+                            // TODO: FriendRequestItemView 里的 peer_user 同样带“当前查询者视角”。
+                            // 当前这里复用 requester 视角 item 推给 target，payload 语义并不严格等价于
+                            // target 侧的收件箱列表；现阶段客户端靠后续 HTTP 刷新掩盖了这个问题。
                             Json::Value payload(Json::objectValue);
                             payload["request"] =
                                 protocol::dto::friendship::toJson(item);
@@ -383,6 +387,9 @@ void FriendService::acceptFriendRequest(std::string requestId,
                             (*sharedSuccess)(item);
 
                             // 申请通过后，发起人如果在线，会立刻收到状态更新。
+                            //
+                            // TODO: 这里的 item 是 target 视角 DTO；如果直接推给 requester，
+                            // peer_user 会和 requester 自己查询发件箱时的语义不完全一致。
                             Json::Value payload(Json::objectValue);
                             payload["request"] =
                                 protocol::dto::friendship::toJson(item);
@@ -533,6 +540,8 @@ void FriendService::rejectFriendRequest(std::string requestId,
                             (*sharedSuccess)(item);
 
                             // 被拒绝也走实时通知，方便发起人端的申请列表立即更新。
+                            //
+                            // TODO: 与 accept 同理，这里复用了 target 视角 DTO。
                             Json::Value payload(Json::objectValue);
                             payload["request"] =
                                 protocol::dto::friendship::toJson(item);

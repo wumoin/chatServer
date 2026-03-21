@@ -60,6 +60,8 @@ std::string trimCopy(const std::string_view input)
 std::optional<std::string> resolveBearerAccessToken(
     const drogon::HttpRequestPtr &request)
 {
+    // 会话域所有 HTTP 接口都要求 Bearer access token。
+    // controller 这里只筛掉明显不合法的 header，真正 token 语义仍交给 service。
     auto authorization = request->getHeader("Authorization");
     if (authorization.empty())
     {
@@ -204,6 +206,8 @@ void ConversationController::createPrivateConversation(
         return;
     }
 
+    // “创建私聊”语义其实是 create-or-find：
+    // service 可能新建，也可能复用既有一对一会话，controller 不关心具体来源。
     conversationService_.createOrFindPrivateConversation(
         std::move(createRequest),
         *accessToken,
@@ -248,6 +252,7 @@ void ConversationController::listConversations(
         return;
     }
 
+    // 这里返回的是会话列表快照；增量实时更新属于 WS 推送链路。
     conversationService_.listConversations(
         *accessToken,
         [sharedCallback, requestId](
@@ -340,6 +345,8 @@ void ConversationController::listMessages(
     protocol::dto::conversation::ListConversationMessagesRequest query;
     query.limit = 50;
 
+    // 历史消息接口走 before_seq / after_seq 分页。
+    // controller 只把 query string 解析成标准请求对象，不决定翻页策略。
     const auto limitText = request->getOptionalParameter<std::string>("limit");
     if (limitText.has_value())
     {
@@ -459,6 +466,8 @@ void ConversationController::sendTextMessage(
         return;
     }
 
+    // 这是 HTTP 命令式发送入口。
+    // controller 只返回“本次消息已写入”的结果，不在这里补做 ws.new 广播。
     conversationService_.sendTextMessage(
         std::move(conversationId),
         std::move(sendRequest),
