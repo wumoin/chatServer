@@ -83,6 +83,23 @@ class FileStorage
                                 const std::string &content) = 0;
 
     /**
+     * @brief 从一个已经存在于本地磁盘上的源文件导入对象。
+     *
+     * 这个接口主要服务于“大文件先流式写到 staging file，再统一导入存储层”
+     * 的场景。相比 `save(..., content)`，它不要求调用方先把整份文件拼成一块
+     * 内存缓冲，因此更适合大附件上传和后续正式附件确认。
+     *
+     * @param request 文件保存请求。
+     * @param sourcePath 已存在的本地源文件路径。
+     * @param moveSource true 表示导入成功后尽量移动并删除源文件；
+     *        false 表示保留源文件，仅复制一份到目标存储路径。
+     * @return 保存成功后的统一结果。
+     */
+    virtual StoredFileInfo saveFromFile(const SaveFileRequest &request,
+                                        const std::filesystem::path &sourcePath,
+                                        bool moveSource) = 0;
+
+    /**
      * @brief 读取某个存储 key 对应的完整文件内容。
      * @param storageKey 存储 key。
      * @return 文件的完整二进制内容。

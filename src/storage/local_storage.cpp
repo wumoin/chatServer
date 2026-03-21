@@ -263,6 +263,24 @@ std::string generateStorageKey(FileCategory category,
         .generic_string();
 }
 
+StoredFileInfo buildStoredFileInfo(const SaveFileRequest &request,
+                                   const LocalStorageSettings &settings,
+                                   const std::string &storageKey,
+                                   const std::filesystem::path &absolutePath,
+                                   const std::uint64_t size)
+{
+    StoredFileInfo info;
+    info.category = request.category;
+    info.storageKey = storageKey;
+    info.relativePath =
+        absolutePath.lexically_relative(settings.rootDir).generic_string();
+    info.absolutePath = absolutePath.string();
+    info.originalFileName = request.originalFileName;
+    info.contentType = request.contentType;
+    info.size = size;
+    return info;
+}
+
 }  // namespace
 
 std::shared_ptr<LocalStorage> LocalStorage::createFromConfig(
@@ -340,16 +358,115 @@ StoredFileInfo LocalStorage::save(const SaveFileRequest &request,
                                  errorCode.message());
     }
 
-    StoredFileInfo info;
-    info.category = request.category;
-    info.storageKey = storageKey;
-    info.relativePath =
-        absolutePath.lexically_relative(settings_.rootDir).generic_string();
-    info.absolutePath = absolutePath.string();
-    info.originalFileName = request.originalFileName;
-    info.contentType = request.contentType;
-    info.size = static_cast<std::uint64_t>(content.size());
-    return info;
+    return buildStoredFileInfo(request,
+                               settings_,
+                               storageKey,
+                               absolutePath,
+                               static_cast<std::uint64_t>(content.size()));
+}
+
+StoredFileInfo LocalStorage::saveFromFile(const SaveFileRequest &request,
+                                          const std::filesystem::path &sourcePath,
+                                          const bool moveSource)
+{
+    if (sourcePath.empty())
+    {
+        throw std::runtime_error("sourcePath must not be empty");
+    }
+
+    const auto normalizedSourcePath = sourcePath.lexically_normal();
+    std::error_code errorCode;
+    if (!std::filesystem::exists(normalizedSourcePath, errorCode) ||
+        errorCode)
+    {
+        throw std::runtime_error("source file does not exist: " +
+                                 normalizedSourcePath.string());
+    }
+
+    const auto &baseDir = baseDirectoryFor(request.category);
+    const std::string storageKey = generateStorageKey(request.category,
+                                                      settings_.rootDir,
+                                                      baseDir,
+                                                      request.preferredStorageKey,
+                                                      request.originalFileName);
+    const auto absolutePath = resolveAbsolutePath(storageKey);
+    const auto parentDir = absolutePath.parent_path();
+
+    std::filesystem::create_directories(parentDir, errorCode);
+    if (errorCode)
+    {
+        throw std::runtime_error("failed to create storage directory: " +
+                                 parentDir.string() + ", error: " +
+                                 errorCode.message());
+    }
+
+    const auto tempPath = absolutePath.string() + ".part";
+    std::filesystem::remove(tempPath, errorCode);
+    errorCode.clear();
+
+    if (moveSource)
+    {
+        // 优先尝试 rename，让“流式写好的 staging file -> 正式对象”尽量走移动，
+        // 避免对超大文件再额外做一整次用户态复制。
+        std::filesystem::rename(normalizedSourcePath, tempPath, errorCode);
+        if (errorCode)
+        {
+            errorCode.clear();
+            std::filesystem::copy_file(normalizedSourcePath,
+                                       tempPath,
+                                       std::filesystem::copy_options::overwrite_existing,
+                                       errorCode);
+            if (errorCode)
+            {
+                throw std::runtime_error("failed to import local storage file: " +
+                                         normalizedSourcePath.string() +
+                                         ", error: " + errorCode.message());
+            }
+
+            std::filesystem::remove(normalizedSourcePath, errorCode);
+            if (errorCode)
+            {
+                std::filesystem::remove(tempPath);
+                throw std::runtime_error("failed to remove staged source file: " +
+                                         normalizedSourcePath.string() +
+                                         ", error: " + errorCode.message());
+            }
+        }
+    }
+    else
+    {
+        // 正式附件确认阶段仍需保留临时上传对象，便于后续消息落库失败时重试，
+        // 因此这里显式走复制语义，不移动源文件。
+        std::filesystem::copy_file(normalizedSourcePath,
+                                   tempPath,
+                                   std::filesystem::copy_options::overwrite_existing,
+                                   errorCode);
+        if (errorCode)
+        {
+            throw std::runtime_error("failed to copy local storage file: " +
+                                     normalizedSourcePath.string() +
+                                     ", error: " + errorCode.message());
+        }
+    }
+
+    std::filesystem::rename(tempPath, absolutePath, errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(tempPath);
+        throw std::runtime_error("failed to finalize local storage file: " +
+                                 absolutePath.string() + ", error: " +
+                                 errorCode.message());
+    }
+
+    const auto size = std::filesystem::file_size(absolutePath, errorCode);
+    if (errorCode)
+    {
+        throw std::runtime_error("failed to stat local storage file: " +
+                                 absolutePath.string() + ", error: " +
+                                 errorCode.message());
+    }
+
+    return buildStoredFileInfo(request, settings_, storageKey, absolutePath, size);
 }
 
 std::string LocalStorage::read(const std::string &storageKey) const

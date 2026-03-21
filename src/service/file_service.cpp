@@ -23,7 +23,6 @@ namespace chatserver::service {
 namespace {
 
 constexpr auto kFileLogTag = "file";
-constexpr std::size_t kAttachmentMaxBytes = 50 * 1024 * 1024;
 constexpr std::string_view kTemporaryAttachmentPrefix = "tmp/attachments/";
 
 /**
@@ -290,7 +289,19 @@ void FileService::uploadTemporaryAttachment(
         saveRequest.preferredStorageKey =
             buildTemporaryAttachmentUploadKey(claims.userId,
                                              request.originalFileName);
-        stored = storage->save(saveRequest, request.content);
+        if (!request.stagedFilePath.empty())
+        {
+            // 流式上传场景下，controller 已经把 multipart file part 边接收边写到
+            // staging file。这里直接把 staging file 导入存储层，不再把整份文件
+            // 重组回一块内存内容。
+            stored = storage->saveFromFile(saveRequest,
+                                           request.stagedFilePath,
+                                           true);
+        }
+        else
+        {
+            stored = storage->save(saveRequest, request.content);
+        }
 
         TemporaryAttachmentMetadata metadata;
         metadata.uploaderUserId = claims.userId;
@@ -392,7 +403,6 @@ void FileService::prepareAttachmentForMessage(
     }
 
     TemporaryAttachmentMetadata metadata;
-    std::string content;
     storage::StoredFileInfo stored;
     std::string storageProvider = "local";
     try
@@ -454,8 +464,29 @@ void FileService::prepareAttachmentForMessage(
             }
         }
 
-        content = storage->read(attachmentUploadKey);
-        if (content.empty())
+        const auto temporaryFilePath =
+            storage->resolveAbsolutePath(attachmentUploadKey);
+        if (!std::filesystem::exists(temporaryFilePath))
+        {
+            (*sharedFailure)(ServiceError{
+                protocol::error::ErrorCode::kNotFound,
+                "attachment upload key not found",
+            });
+            return;
+        }
+
+        std::error_code fileSizeError;
+        const auto temporaryFileSize =
+            std::filesystem::file_size(temporaryFilePath, fileSizeError);
+        if (fileSizeError)
+        {
+            throw std::runtime_error(
+                "failed to stat temporary attachment file: " +
+                temporaryFilePath.string() + ", error: " +
+                fileSizeError.message());
+        }
+
+        if (temporaryFileSize == 0)
         {
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInvalidArgument,
@@ -464,7 +495,7 @@ void FileService::prepareAttachmentForMessage(
             return;
         }
 
-        if (static_cast<std::int64_t>(content.size()) != metadata.sizeBytes)
+        if (static_cast<std::int64_t>(temporaryFileSize) != metadata.sizeBytes)
         {
             (*sharedFailure)(ServiceError{
                 protocol::error::ErrorCode::kInternalError,
@@ -477,7 +508,9 @@ void FileService::prepareAttachmentForMessage(
         saveRequest.category = storage::FileCategory::kAttachment;
         saveRequest.originalFileName = metadata.originalFileName;
         saveRequest.contentType = metadata.mimeType;
-        stored = storage->save(saveRequest, content);
+        // 正式附件准备阶段必须保留临时上传对象，直到后续消息落库并广播成功后
+        // 才能清理，因此这里使用“复制导入”，不直接移动源文件。
+        stored = storage->saveFromFile(saveRequest, temporaryFilePath, false);
     }
     catch (const std::exception &exception)
     {
@@ -651,13 +684,16 @@ bool FileService::validateTemporaryAttachmentUploadRequest(
 {
     // 第一版临时附件上传规则先保持简单明确：
     // 1. 文件名必填
-    // 2. 文件内容不能为空
+    // 2. 上传内容必须二选一：
+    //    - 要么直接给 content
+    //    - 要么给已经流式落盘的 stagedFilePath + sizeBytes
     // 3. 限制最大体积
     // 4. media_kind 只允许 image / file
     // 5. 图片尺寸要么都带，要么都不带
     request.originalFileName = trimCopy(request.originalFileName);
     request.mimeType = trimCopy(request.mimeType);
     request.mediaKind = trimCopy(request.mediaKind);
+    request.stagedFilePath = trimCopy(request.stagedFilePath);
 
     if (request.originalFileName.empty() || request.originalFileName.size() > 255)
     {
@@ -666,17 +702,38 @@ bool FileService::validateTemporaryAttachmentUploadRequest(
         return false;
     }
 
-    if (request.content.empty())
+    const bool hasInlineContent = !request.content.empty();
+    const bool hasStagedFile = !request.stagedFilePath.empty();
+    if (!hasInlineContent && !hasStagedFile)
     {
         error.code = protocol::error::ErrorCode::kInvalidArgument;
         error.message = "file must not be empty";
         return false;
     }
 
-    if (request.content.size() > kAttachmentMaxBytes)
+    if (hasInlineContent && hasStagedFile)
     {
         error.code = protocol::error::ErrorCode::kInvalidArgument;
-        error.message = "file size must not exceed 50 MB";
+        error.message = "file content source is invalid";
+        return false;
+    }
+
+    if (!hasInlineContent && request.sizeBytes == 0)
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message = "file must not be empty";
+        return false;
+    }
+
+    if (hasInlineContent)
+    {
+        request.sizeBytes = request.content.size();
+    }
+
+    if (request.sizeBytes > kTemporaryAttachmentMaxBytes)
+    {
+        error.code = protocol::error::ErrorCode::kInvalidArgument;
+        error.message = "file size must not exceed 1 GB";
         return false;
     }
 

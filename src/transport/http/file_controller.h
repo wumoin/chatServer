@@ -3,6 +3,7 @@
 #include "service/file_service.h"
 
 #include <drogon/HttpController.h>
+#include <drogon/RequestStream.h>
 
 namespace chatserver::transport::http {
 
@@ -21,10 +22,12 @@ class FileController : public drogon::HttpController<FileController>
     /**
      * @brief 上传一个临时聊天附件文件。
      * @param request HTTP 请求对象。
+     * @param streamCtx 当前请求的流式读取上下文。
      * @param callback HTTP 响应回调。
      */
     void uploadFile(
         const drogon::HttpRequestPtr &request,
+        drogon::RequestStreamPtr &&streamCtx,
         std::function<void(const drogon::HttpResponsePtr &)> &&callback) const;
 
     /**

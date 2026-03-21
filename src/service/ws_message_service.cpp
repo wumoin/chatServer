@@ -432,14 +432,31 @@ void WsMessageService::handleSendImageMessage(
                 return;
             }
 
+            // 这里先把后续真正需要的字段提取成稳定副本，再进入下一层异步。
+            //
+            // 原因是：如果在 `prepareAttachmentForMessage(...)` 这一行里，
+            // 一边读取 `request.attachmentUploadKey`，一边又在 lambda capture
+            // 中 `std::move(request)`，那么不同参数的求值顺序并没有我们能依赖
+            // 的保证。这样会出现 upload key 还没来得及读出，`request` 就已经
+            // 被 move 走的情况，最终导致文件服务看到空的
+            // `attachment_upload_key`。
+            //
+            // 因此这里显式拆开为“先读字段，再把字段传入异步回调”，避免把
+            // 整个 request 对象跨多层异步继续搬运，也让这条链路更容易阅读。
+            const std::string attachmentUploadKey = request.attachmentUploadKey;
+            const std::optional<std::string> clientMessageId =
+                request.clientMessageId;
+            const std::optional<std::string> caption = request.caption;
+
             fileService_.prepareAttachmentForMessage(
-                request.attachmentUploadKey,
+                attachmentUploadKey,
                 sharedContext->userId,
                 std::optional<std::string>("image"),
                 [this,
                  userIds = std::move(userIds),
                  conversationId,
-                 request = std::move(request),
+                 clientMessageId,
+                 caption,
                  sharedConnection,
                  sharedRequestId](
                     PreparedAttachmentResult prepared) mutable {
@@ -448,14 +465,14 @@ void WsMessageService::handleSendImageMessage(
                     params.messageId = idGenerator.nextMessageId();
                     params.conversationId = conversationId;
                     params.senderId = prepared.attachment.uploaderUserId;
-                    params.clientMessageId = request.clientMessageId;
+                    params.clientMessageId = clientMessageId;
                     params.attachmentId = prepared.attachment.attachmentId;
                     params.fileName = prepared.attachment.originalFileName;
                     params.mimeType = prepared.attachment.mimeType;
                     params.sizeBytes = prepared.attachment.sizeBytes;
                     params.downloadUrl = buildAttachmentDownloadUrl(
                         prepared.attachment.attachmentId);
-                    params.caption = request.caption;
+                    params.caption = caption;
                     params.imageWidth = prepared.attachment.imageWidth;
                     params.imageHeight = prepared.attachment.imageHeight;
 

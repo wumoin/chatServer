@@ -141,6 +141,18 @@
         "number_of_threads": 0,
         // enable_session: 当前阶段不开启 HTTP Session。
         "enable_session": false,
+        // enable_request_stream: 打开 Drogon 的 HTTP request stream 模式。
+        // 聊天附件上传现在已经切到流式 multipart 读取；
+        // 开启后 controller 可以边接收边写 staging file，而不是等整个请求体到齐后再处理。
+        "enable_request_stream": true,
+        // client_max_body_size: 服务端允许接收的单个 HTTP 请求体最大尺寸。
+        // 聊天附件上传当前业务上限已经提升到 1 GB，这里也必须同步放宽，
+        // 否则大文件会先在 Drogon 框架层被拒绝，根本到不了流式上传 handler。
+        "client_max_body_size": "1G",
+        // client_max_memory_body_size: Drogon 允许暂存在内存中的请求体上限。
+        // 由于附件上传已经改成 request stream 模式，这里不需要再和 1 GB 完全等大。
+        // 保持一个较小阈值即可，避免非流式请求轻易占满大块内存。
+        "client_max_memory_body_size": "1M",
         // idle_connection_timeout: 空闲连接超时时间，单位秒。
         "idle_connection_timeout": 60,
         // log: Drogon 日志配置。

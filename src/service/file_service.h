@@ -5,10 +5,19 @@
 #include "service/service_error.h"
 
 #include <functional>
+#include <cstdint>
 #include <optional>
 #include <string>
 
 namespace chatserver::service {
+
+// 聊天附件上传大小上限统一提升到 1 GB。
+// 这个常量会同时被：
+// 1) FileController 的流式上传阶段；
+// 2) FileService 的业务校验阶段；
+// 共同复用，避免框架层、controller 层和 service 层各自维护一套不同阈值。
+inline constexpr std::uint64_t kTemporaryAttachmentMaxBytes =
+    1024ULL * 1024ULL * 1024ULL;
 
 /**
  * @brief 临时附件上传请求。
@@ -18,10 +27,21 @@ namespace chatserver::service {
  */
 struct TemporaryAttachmentUploadRequest
 {
+    // 原始文件名，用于后续 storage key 后缀、响应展示和正式附件记录。
     std::string originalFileName;
+    // multipart part 上报的 MIME 类型。
     std::string mimeType;
+    // 业务媒体类别，当前只允许 image / file。
     std::string mediaKind;
+    // 小文件路径仍可直接走内存内容导入。
     std::string content;
+    // 大文件流式上传时，controller 会先把内容写到 staging file，
+    // 然后把 staging file 的本地路径传给 service。
+    std::string stagedFilePath;
+    // 当前上传对象的字节大小：
+    // - 走 content 路径时通常等于 content.size()；
+    // - 走 stagedFilePath 路径时由 controller 在流式写盘时累加得到。
+    std::uint64_t sizeBytes{0};
     std::optional<int> imageWidth;
     std::optional<int> imageHeight;
 };

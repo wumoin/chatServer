@@ -67,6 +67,17 @@ class LocalStorage final : public FileStorage
                         const std::string &content) override;
 
     /**
+     * @brief 从一个已存在的本地源文件导入对象。
+     * @param request 文件保存请求。
+     * @param sourcePath 已存在的本地源文件路径。
+     * @param moveSource true 表示导入成功后尽量移动并删除源文件；false 表示保留源文件。
+     * @return 保存成功后的统一结果。
+     */
+    StoredFileInfo saveFromFile(const SaveFileRequest &request,
+                                const std::filesystem::path &sourcePath,
+                                bool moveSource) override;
+
+    /**
      * @brief 读取某个存储 key 对应的本地文件完整内容。
      * @param storageKey 存储 key。
      * @return 文件二进制内容。

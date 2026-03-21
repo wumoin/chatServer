@@ -3,13 +3,15 @@
 #include "protocol/dto/file/file_dto.h"
 #include "protocol/error/error_code.h"
 
-#include <drogon/MultiPart.h>
+#include <drogon/RequestStream.h>
 #include <drogon/drogon.h>
 
 #include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
-#include <limits>
 #include <string>
 #include <string_view>
 
@@ -126,80 +128,25 @@ drogon::HttpStatusCode mapServiceErrorToStatus(
     }
 }
 
-std::string resolveMimeType(const drogon::HttpFile &file)
+std::string resolveMimeType(const drogon::MultipartHeader &header)
 {
-    // multipart 如果带了已知内容类型就尽量沿用；识别不出来时统一回退为 octet-stream。
-    switch (file.getContentType())
-    {
-    case drogon::CT_APPLICATION_JSON:
-        return "application/json";
-    case drogon::CT_TEXT_PLAIN:
-        return "text/plain";
-    case drogon::CT_APPLICATION_PDF:
-        return "application/pdf";
-    case drogon::CT_APPLICATION_ZIP:
-        return "application/zip";
-    case drogon::CT_IMAGE_APNG:
-        return "image/apng";
-    case drogon::CT_IMAGE_BMP:
-        return "image/bmp";
-    case drogon::CT_IMAGE_GIF:
-        return "image/gif";
-    case drogon::CT_IMAGE_JPG:
-        return "image/jpeg";
-    case drogon::CT_IMAGE_PNG:
-        return "image/png";
-    case drogon::CT_IMAGE_SVG_XML:
-        return "image/svg+xml";
-    case drogon::CT_IMAGE_TIFF:
-        return "image/tiff";
-    case drogon::CT_IMAGE_WEBP:
-        return "image/webp";
-    default:
-        return "application/octet-stream";
-    }
+    // 流式 multipart 场景下，我们直接使用 part header 自带的 contentType。
+    // 若调用方没带这一项，则退回为 octet-stream，后续业务层再按 media_kind 校验。
+    const std::string mimeType = trimCopy(header.contentType);
+    return mimeType.empty() ? "application/octet-stream" : mimeType;
 }
 
-std::string resolveMediaKind(const drogon::HttpFile &file)
+std::string resolveMediaKind(const std::string &mimeType)
 {
-    // 目前附件域只粗分成 image / file 两类，
-    // 更细的预览策略由客户端根据 mimeType 再细分。
-    return file.getFileType() == drogon::FT_IMAGE ? "image" : "file";
+    // 当前附件域仍只粗分成 image / file 两类。
+    // 与之前基于 HttpFile::getFileType() 的逻辑相比，这里改成直接根据
+    // multipart header 中的 MIME 类型做判断，更适合流式读取场景。
+    return mimeType.rfind("image/", 0) == 0 ? "image" : "file";
 }
 
-const drogon::HttpFile *resolveUploadFile(const drogon::MultiPartParser &parser)
+std::optional<int> parseOptionalPositiveIntParameter(const std::string &value)
 {
-    // 约定优先取字段名为 file 的上传文件，便于客户端和文档统一；
-    // 如果调用方没按名字传，就回退到第一个文件字段，尽量放宽兼容性。
-    const auto &files = parser.getFiles();
-    for (const auto &file : files)
-    {
-        if (file.getItemName() == "file")
-        {
-            return &file;
-        }
-    }
-
-    if (files.empty())
-    {
-        return nullptr;
-    }
-
-    return &files.front();
-}
-
-std::optional<int> resolveOptionalPositiveIntParameter(
-    const drogon::MultiPartParser &parser,
-    const std::string &key)
-{
-    const auto &parameters = parser.getParameters();
-    const auto it = parameters.find(key);
-    if (it == parameters.end())
-    {
-        return std::nullopt;
-    }
-
-    const std::string trimmedValue = trimCopy(it->second);
+    const std::string trimmedValue = trimCopy(value);
     if (trimmedValue.empty())
     {
         return std::nullopt;
@@ -221,25 +168,87 @@ std::optional<int> resolveOptionalPositiveIntParameter(
     }
 }
 
+std::filesystem::path buildStreamUploadStagePath(const std::string &requestId,
+                                                 const std::string &fileName)
+{
+    std::filesystem::path stageDir =
+        std::filesystem::temp_directory_path() / "chatserver-stream-uploads";
+    std::error_code errorCode;
+    std::filesystem::create_directories(stageDir, errorCode);
+    if (errorCode)
+    {
+        throw std::runtime_error("failed to create stream upload stage dir: " +
+                                 stageDir.string() + ", error: " +
+                                 errorCode.message());
+    }
+
+    const std::string extension =
+        std::filesystem::path(fileName).extension().string();
+    return stageDir /
+           ("upload_" + requestId + "_" +
+            drogon::utils::getUuid(false).substr(0, 12) + extension + ".part");
+}
+
+void removeStageFileQuietly(const std::filesystem::path &stagePath)
+{
+    if (stagePath.empty())
+    {
+        return;
+    }
+
+    std::error_code errorCode;
+    std::filesystem::remove(stagePath, errorCode);
+}
+
+struct StreamUploadState
+{
+    std::string requestId;
+    std::string accessToken;
+    std::function<void(const drogon::HttpResponsePtr &)> callback;
+    std::string currentPartName;
+    bool currentPartIsFile = false;
+    bool receivedFilePart = false;
+    std::string originalFileName;
+    std::string mimeType;
+    std::string mediaKind;
+    std::string imageWidthText;
+    std::string imageHeightText;
+    std::filesystem::path stagePath;
+    std::ofstream stageFile;
+    std::uint64_t bytesWritten = 0;
+    bool callbackInvoked = false;
+};
+
+void respondOnce(const std::shared_ptr<StreamUploadState> &state,
+                 const drogon::HttpResponsePtr &response)
+{
+    if (!state || state->callbackInvoked)
+    {
+        return;
+    }
+
+    state->callbackInvoked = true;
+    state->callback(response);
+}
+
 }  // namespace
 
 void FileController::uploadFile(
     const drogon::HttpRequestPtr &request,
+    drogon::RequestStreamPtr &&streamCtx,
     std::function<void(const drogon::HttpResponsePtr &)> &&callback) const
 {
-    // controller 这一层只做三件事：
-    // 1. 解析认证与 multipart
-    // 2. 调用 FileService
-    // 3. 把结果包装成统一 JSON 响应
+    // 当前上传入口已经改成真正的 request stream 模式：
+    // 1. 先校验认证；
+    // 2. 再由 Drogon 的 multipart stream reader 逐段解析 part；
+    // 3. 文件 part 的字节会直接写入 staging file，而不是先拼成一整块内存；
+    // 4. 流结束后再调用 FileService 完成 upload key / metadata 的正式整理。
     const std::string requestId = resolveRequestId(request);
-    auto sharedCallback =
-        std::make_shared<std::function<void(const drogon::HttpResponsePtr &)>>(
-            std::move(callback));
 
     const auto accessToken = resolveBearerAccessToken(request);
     if (!accessToken.has_value())
     {
-        (*sharedCallback)(makeResponse(
+        callback(makeResponse(
             drogon::k401Unauthorized,
             requestId,
             protocol::error::ErrorCode::kInvalidAccessToken,
@@ -248,70 +257,206 @@ void FileController::uploadFile(
         return;
     }
 
-    drogon::MultiPartParser parser;
-    if (parser.parse(request) != 0)
+    if (!streamCtx)
     {
-        (*sharedCallback)(makeResponse(
-            drogon::k400BadRequest,
+        callback(makeResponse(
+            drogon::k500InternalServerError,
             requestId,
-            protocol::error::ErrorCode::kInvalidArgument,
-            "failed to parse multipart body"));
+            protocol::error::ErrorCode::kInternalError,
+            "request stream is unavailable"));
         return;
     }
 
-    const auto *file = resolveUploadFile(parser);
-    if (file == nullptr)
-    {
-        (*sharedCallback)(makeResponse(
-            drogon::k400BadRequest,
-            requestId,
-            protocol::error::ErrorCode::kInvalidArgument,
-            "file is required"));
-        return;
-    }
+    auto state = std::make_shared<StreamUploadState>();
+    state->requestId = requestId;
+    state->accessToken = *accessToken;
+    state->callback = std::move(callback);
 
-    service::TemporaryAttachmentUploadRequest uploadRequest;
-    uploadRequest.originalFileName = file->getFileName();
-    uploadRequest.mimeType = resolveMimeType(*file);
-    uploadRequest.mediaKind = resolveMediaKind(*file);
-    uploadRequest.imageWidth =
-        resolveOptionalPositiveIntParameter(parser, "image_width");
-    uploadRequest.imageHeight =
-        resolveOptionalPositiveIntParameter(parser, "image_height");
-    // controller 负责把 multipart 文件对象压成统一内存请求，
-    // 后续临时落盘、生成 upload key、写 meta 文件都由 FileService 处理。
-    uploadRequest.content.assign(file->fileData(), file->fileLength());
+    streamCtx->setStreamReader(drogon::RequestStreamReader::newMultipartReader(
+        request,
+        [state](drogon::MultipartHeader header) {
+            if (state->callbackInvoked)
+            {
+                return;
+            }
 
-    fileService_.uploadTemporaryAttachment(
-        std::move(uploadRequest),
-        *accessToken,
-        [sharedCallback, requestId](
-            service::TemporaryAttachmentUploadView upload) mutable {
-            Json::Value data(Json::objectValue);
-            data["upload"] = protocol::dto::file::toJson(
-                protocol::dto::file::TemporaryAttachmentUploadView{
-                    upload.attachmentUploadKey,
-                    upload.fileName,
-                    upload.mimeType,
-                    upload.sizeBytes,
-                    upload.mediaKind,
-                    upload.imageWidth,
-                    upload.imageHeight,
-                });
-            (*sharedCallback)(makeResponse(
-                drogon::k201Created,
-                requestId,
-                protocol::error::ErrorCode::kOk,
-                protocol::error::defaultMessage(
-                    protocol::error::ErrorCode::kOk),
-                std::move(data)));
+            state->currentPartName = trimCopy(header.name);
+            state->currentPartIsFile = !header.filename.empty();
+            if (!state->currentPartIsFile)
+            {
+                return;
+            }
+
+            if (state->receivedFilePart)
+            {
+                respondOnce(state,
+                            makeResponse(drogon::k400BadRequest,
+                                         state->requestId,
+                                         protocol::error::ErrorCode::kInvalidArgument,
+                                         "only one file part is allowed"));
+                return;
+            }
+
+            state->receivedFilePart = true;
+            state->originalFileName =
+                std::filesystem::path(header.filename).filename().string();
+            state->mimeType = resolveMimeType(header);
+            state->mediaKind = resolveMediaKind(state->mimeType);
+            state->stagePath =
+                buildStreamUploadStagePath(state->requestId,
+                                           state->originalFileName);
+            state->stageFile.open(state->stagePath,
+                                  std::ios::binary | std::ios::trunc);
+            if (!state->stageFile.is_open())
+            {
+                respondOnce(state,
+                            makeResponse(drogon::k500InternalServerError,
+                                         state->requestId,
+                                         protocol::error::ErrorCode::kInternalError,
+                                         "failed to open upload stage file"));
+            }
         },
-        [sharedCallback, requestId](service::ServiceError error) mutable {
-            (*sharedCallback)(makeResponse(mapServiceErrorToStatus(error),
-                                           requestId,
-                                           error.code,
-                                           error.message));
-        });
+        [state](const char *data, const size_t length) {
+            if (state->callbackInvoked || length == 0)
+            {
+                return;
+            }
+
+            if (state->currentPartIsFile)
+            {
+                if (!state->stageFile.is_open())
+                {
+                    respondOnce(state,
+                                makeResponse(
+                                    drogon::k500InternalServerError,
+                                    state->requestId,
+                                    protocol::error::ErrorCode::kInternalError,
+                                    "upload stage file is unavailable"));
+                    return;
+                }
+
+                if (state->bytesWritten + length >
+                    service::kTemporaryAttachmentMaxBytes)
+                {
+                    respondOnce(state,
+                                makeResponse(
+                                    drogon::k400BadRequest,
+                                    state->requestId,
+                                    protocol::error::ErrorCode::kInvalidArgument,
+                                    "file size must not exceed 1 GB"));
+                    return;
+                }
+
+                state->stageFile.write(data,
+                                       static_cast<std::streamsize>(length));
+                if (!state->stageFile.good())
+                {
+                    respondOnce(state,
+                                makeResponse(
+                                    drogon::k500InternalServerError,
+                                    state->requestId,
+                                    protocol::error::ErrorCode::kInternalError,
+                                    "failed to write upload stage file"));
+                    return;
+                }
+
+                state->bytesWritten += length;
+                return;
+            }
+
+            if (state->currentPartName == "image_width")
+            {
+                state->imageWidthText.append(data,
+                                             static_cast<std::string::size_type>(
+                                                 length));
+            }
+            else if (state->currentPartName == "image_height")
+            {
+                state->imageHeightText.append(data,
+                                              static_cast<std::string::size_type>(
+                                                  length));
+            }
+        },
+        [this, state](std::exception_ptr ex) {
+            if (state->stageFile.is_open())
+            {
+                state->stageFile.close();
+            }
+
+            if (state->callbackInvoked)
+            {
+                removeStageFileQuietly(state->stagePath);
+                return;
+            }
+
+            if (ex)
+            {
+                removeStageFileQuietly(state->stagePath);
+                respondOnce(state,
+                            makeResponse(drogon::k400BadRequest,
+                                         state->requestId,
+                                         protocol::error::ErrorCode::kInvalidArgument,
+                                         "failed to parse multipart body"));
+                return;
+            }
+
+            if (!state->receivedFilePart)
+            {
+                removeStageFileQuietly(state->stagePath);
+                respondOnce(state,
+                            makeResponse(drogon::k400BadRequest,
+                                         state->requestId,
+                                         protocol::error::ErrorCode::kInvalidArgument,
+                                         "file is required"));
+                return;
+            }
+
+            service::TemporaryAttachmentUploadRequest uploadRequest;
+            uploadRequest.originalFileName = state->originalFileName;
+            uploadRequest.mimeType = state->mimeType;
+            uploadRequest.mediaKind = state->mediaKind;
+            uploadRequest.stagedFilePath = state->stagePath.string();
+            uploadRequest.sizeBytes = state->bytesWritten;
+            uploadRequest.imageWidth =
+                parseOptionalPositiveIntParameter(state->imageWidthText);
+            uploadRequest.imageHeight =
+                parseOptionalPositiveIntParameter(state->imageHeightText);
+
+            fileService_.uploadTemporaryAttachment(
+                std::move(uploadRequest),
+                state->accessToken,
+                [state](service::TemporaryAttachmentUploadView upload) mutable {
+                    removeStageFileQuietly(state->stagePath);
+
+                    Json::Value data(Json::objectValue);
+                    data["upload"] = protocol::dto::file::toJson(
+                        protocol::dto::file::TemporaryAttachmentUploadView{
+                            upload.attachmentUploadKey,
+                            upload.fileName,
+                            upload.mimeType,
+                            upload.sizeBytes,
+                            upload.mediaKind,
+                            upload.imageWidth,
+                            upload.imageHeight,
+                        });
+                    respondOnce(state,
+                                makeResponse(
+                                    drogon::k201Created,
+                                    state->requestId,
+                                    protocol::error::ErrorCode::kOk,
+                                    protocol::error::defaultMessage(
+                                        protocol::error::ErrorCode::kOk),
+                                    std::move(data)));
+                },
+                [state](service::ServiceError error) mutable {
+                    removeStageFileQuietly(state->stagePath);
+                    respondOnce(state,
+                                makeResponse(mapServiceErrorToStatus(error),
+                                             state->requestId,
+                                             error.code,
+                                             error.message));
+                });
+        }));
 }
 
 void FileController::downloadFile(
