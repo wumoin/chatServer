@@ -52,6 +52,20 @@ struct SendImageMessageRequest
 };
 
 /**
+ * @brief 发送文件消息请求。
+ *
+ * 和图片消息一样，文件消息也不直接通过 WebSocket 发送二进制内容。
+ * 调用方需要先通过文件上传接口拿到 `attachment_upload_key`，
+ * 再在这里引用那次临时上传。
+ */
+struct SendFileMessageRequest
+{
+    std::optional<std::string> clientMessageId;
+    std::string attachmentUploadKey;
+    std::optional<std::string> caption;
+};
+
+/**
  * @brief 会话中展示的对端用户信息。
  */
 struct ConversationPeerUserView
@@ -212,6 +226,64 @@ inline bool parseSendTextMessageRequest(const Json::Value &json,
 inline bool parseSendImageMessageRequest(const Json::Value &json,
                                          SendImageMessageRequest &out,
                                          std::string &errorMessage)
+{
+    if (!json.isObject())
+    {
+        errorMessage = "Request body must be a JSON object";
+        return false;
+    }
+
+    if (!json.isMember("attachment_upload_key") ||
+        !json["attachment_upload_key"].isString())
+    {
+        errorMessage = "Field 'attachment_upload_key' must be a string";
+        return false;
+    }
+    out.attachmentUploadKey = json["attachment_upload_key"].asString();
+
+    if (json.isMember("client_message_id"))
+    {
+        if (!json["client_message_id"].isNull() &&
+            !json["client_message_id"].isString())
+        {
+            errorMessage =
+                "Field 'client_message_id' must be a string when provided";
+            return false;
+        }
+
+        if (json["client_message_id"].isString())
+        {
+            out.clientMessageId = json["client_message_id"].asString();
+        }
+    }
+
+    if (json.isMember("caption"))
+    {
+        if (!json["caption"].isNull() && !json["caption"].isString())
+        {
+            errorMessage = "Field 'caption' must be a string when provided";
+            return false;
+        }
+
+        if (json["caption"].isString())
+        {
+            out.caption = json["caption"].asString();
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @brief 解析发送文件消息请求。
+ * @param json 请求体 JSON。
+ * @param out 解析成功后写入的 DTO。
+ * @param errorMessage 解析失败时写入的错误消息。
+ * @return true 表示解析成功；false 表示失败。
+ */
+inline bool parseSendFileMessageRequest(const Json::Value &json,
+                                        SendFileMessageRequest &out,
+                                        std::string &errorMessage)
 {
     if (!json.isObject())
     {

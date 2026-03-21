@@ -159,6 +159,26 @@ struct CreateImageMessageParams
     std::optional<int> imageHeight;
 };
 
+/**
+ * @brief 发送文件消息时需要落库的最小字段集合。
+ *
+ * 和图片消息不同，这里不需要保存 width / height，但仍会保存正式附件摘要，
+ * 让客户端只依赖 `message.content` 就能渲染文件消息。
+ */
+struct CreateFileMessageParams
+{
+    std::string messageId;
+    std::string conversationId;
+    std::string senderId;
+    std::optional<std::string> clientMessageId;
+    std::string attachmentId;
+    std::string fileName;
+    std::string mimeType;
+    std::int64_t sizeBytes{0};
+    std::string downloadUrl;
+    std::optional<std::string> caption;
+};
+
 class ConversationRepository
 {
   public:
@@ -176,6 +196,8 @@ class ConversationRepository
     using CreateTextMessageSuccess =
         std::function<void(ConversationMessageRecord)>;
     using CreateImageMessageSuccess =
+        std::function<void(ConversationMessageRecord)>;
+    using CreateFileMessageSuccess =
         std::function<void(ConversationMessageRecord)>;
     using RepositoryFailure = std::function<void(std::string)>;
 
@@ -264,6 +286,16 @@ class ConversationRepository
     void createImageMessage(CreateImageMessageParams params,
                             CreateImageMessageSuccess &&onSuccess,
                             RepositoryFailure &&onFailure) const;
+
+    /**
+     * @brief 向指定会话写入一条文件消息。
+     * @param params 待写入数据库的文件消息字段。
+     * @param onSuccess 写入成功后的回调。
+     * @param onFailure 写入失败后的回调。
+     */
+    void createFileMessage(CreateFileMessageParams params,
+                           CreateFileMessageSuccess &&onSuccess,
+                           RepositoryFailure &&onFailure) const;
 
   private:
     /**

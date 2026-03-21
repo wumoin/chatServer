@@ -31,7 +31,8 @@ constexpr std::string_view kTemporaryAttachmentPrefix = "tmp/attachments/";
  * 这份元数据不会直接暴露给外部数据库表。
  * 它的作用是：
  * 1) 在正式入库前保留“原始文件名 / MIME / 上传人”等可信信息；
- * 2) 让 `message.send_image` 只需引用 upload key，就能完成正式确认；
+ * 2) 让 `message.send_image / message.send_file` 只需引用 upload key，
+ *    就能完成正式确认；
  * 3) 避免把临时附件也提前写进 `attachments` 表。
  */
 struct TemporaryAttachmentMetadata
@@ -251,7 +252,7 @@ void FileService::uploadTemporaryAttachment(
     // 2. 把上传所需的可信元数据写到旁路 meta 文件。
     //
     // 这一步不写 attachments 表。
-    // 只有后续 message.send_image 等正式业务动作确认成功时，
+    // 只有后续 message.send_image / message.send_file 等正式业务动作确认成功时，
     // 才会把临时附件转成正式附件并写库。
     auto sharedSuccess =
         std::make_shared<UploadTemporaryAttachmentSuccess>(std::move(onSuccess));
@@ -284,7 +285,8 @@ void FileService::uploadTemporaryAttachment(
         saveRequest.category = storage::FileCategory::kTemporary;
         saveRequest.originalFileName = request.originalFileName;
         saveRequest.contentType = request.mimeType;
-        // 临时附件把 user_id 编进 upload key，便于后续 message.send_image
+        // 临时附件把 user_id 编进 upload key，便于后续
+        // message.send_image / message.send_file
         // 直接校验“这次上传是不是当前用户自己的”。
         saveRequest.preferredStorageKey =
             buildTemporaryAttachmentUploadKey(claims.userId,

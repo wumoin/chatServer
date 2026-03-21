@@ -18,10 +18,11 @@ namespace chatserver::service {
  * 当前已处理：
  * 1) `ws.send + route=message.send_text`；
  * 2) `ws.send + route=message.send_image`；
- * 3) 当前连接成员权限校验；
- * 4) 正式消息入库；
- * 5) 回发 `ws.ack`；
- * 6) 推送 `ws.new + route=message.created`。
+ * 3) `ws.send + route=message.send_file`；
+ * 4) 当前连接成员权限校验；
+ * 5) 正式消息入库；
+ * 6) 回发 `ws.ack`；
+ * 7) 推送 `ws.new + route=message.created`。
  */
 class WsMessageService
 {
@@ -46,6 +47,19 @@ class WsMessageService
      * @param connection 当前 WebSocket 连接。
      */
     void handleSendImageMessage(
+        Json::Value data,
+        std::string requestId,
+        WsConnectionContext context,
+        const drogon::WebSocketConnectionPtr &connection) const;
+
+    /**
+     * @brief 处理一条文件消息发送请求。
+     * @param data `ws.send.payload.data`。
+     * @param requestId 当前 `ws.send` 的请求 ID。
+     * @param context 当前已认证连接的上下文。
+     * @param connection 当前 WebSocket 连接。
+     */
+    void handleSendFileMessage(
         Json::Value data,
         std::string requestId,
         WsConnectionContext context,

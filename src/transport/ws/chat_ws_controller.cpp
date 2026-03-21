@@ -290,6 +290,17 @@ void ChatWsController::handleNewMessage(
             return;
         }
 
+        if (sendPayload.route == "message.send_file")
+        {
+            // 文件消息和图片消息同样走“HTTP 临时上传 + WS 最终确认”的两段式链路，
+            // 只是最终写入的消息类型和 content 字段口径不同。
+            wsMessageService_.handleSendFileMessage(std::move(sendPayload.data),
+                                                   envelope.requestId,
+                                                   *context,
+                                                   connection);
+            return;
+        }
+
         realtimePushService_.pushAckToConnection(
             connection,
             envelope.requestId,

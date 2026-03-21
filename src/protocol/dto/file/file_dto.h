@@ -13,6 +13,7 @@ namespace chatserver::protocol::dto::file {
  *
  * 这里返回的是“临时上传引用”，还不是已经正式入库的 attachment。
  * 客户端后续需要把 `attachment_upload_key` 带到 `message.send_image`
+ * / `message.send_file`
  * 等正式业务动作里，服务端才会把临时文件转成正式附件并写数据库。
  */
 struct TemporaryAttachmentUploadView
