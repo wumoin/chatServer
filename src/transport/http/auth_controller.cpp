@@ -13,6 +13,13 @@
 #include <string_view>
 #include <utility>
 
+// AuthController 是认证域 HTTP 入口。
+// 它只负责：
+// - 读取 request_id / Authorization / JSON body
+// - 调 AuthService
+// - 把 service 成功或失败结果包装成统一 HTTP 响应
+//
+// 真正的注册 / 登录 / 登出业务规则都不在 controller 里实现。
 namespace chatserver::transport::http {
 namespace {
 

@@ -11,6 +11,12 @@
 #include <stdexcept>
 #include <string>
 
+// Application 负责服务启动时的“总装配”：
+// - 解析 app.json
+// - 初始化日志、安全组件、文件存储
+// - 把 Drogon 的框架配置和健康检查注册起来
+//
+// 这样 main.cpp 只需要创建并运行 Application，不需要知道每个基础设施的初始化顺序。
 namespace chatserver::app {
 namespace {
 

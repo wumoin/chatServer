@@ -5,6 +5,9 @@
 #include <cctype>
 #include <string>
 
+// IdGenerator 集中管理所有业务主键的生成策略。
+// 统一前缀的好处是：日志里更容易识别实体类型，数据库排障时也能快速看出
+// 一个字段究竟属于用户、会话、消息还是附件。
 namespace chatserver::infra::id {
 
 std::string IdGenerator::nextUserId() const

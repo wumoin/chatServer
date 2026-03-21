@@ -8,6 +8,13 @@
 #include <memory>
 #include <string_view>
 
+// UserService 负责“当前登录用户相关”的资料动作：
+// - 临时头像上传
+// - 资料更新
+// - 用户搜索
+// - 按 user_id 读取头像
+//
+// 认证是谁由 token provider 决定，这里负责的是用户域规则和响应视图拼装。
 namespace chatserver::service {
 namespace {
 

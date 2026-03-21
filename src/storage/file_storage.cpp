@@ -3,6 +3,9 @@
 #include <mutex>
 #include <stdexcept>
 
+// StorageRegistry 为文件存储提供一个统一默认入口。
+// 当前项目阶段只有一个默认存储实例，但通过这层注册表，业务代码不需要知道
+// 底层到底是 LocalStorage 还是未来的对象存储实现。
 namespace chatserver::storage {
 namespace {
 

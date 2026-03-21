@@ -12,6 +12,14 @@
 #include <string>
 #include <string_view>
 
+// ConversationController 是会话域 HTTP 入口。
+// 当前它承接：
+// - 创建 / 获取私聊
+// - 获取会话列表
+// - 获取历史消息
+// - 通过 HTTP 发送文本消息
+//
+// controller 本身保持很薄，只做协议转换和错误映射。
 namespace chatserver::transport::http {
 namespace {
 

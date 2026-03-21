@@ -10,6 +10,9 @@
 #include <string>
 #include <vector>
 
+// ConversationRepository 封装 conversations / conversation_members / messages
+// 相关的 SQL。这里的目标是把“如何查库”与“业务上为什么这样查”分开：
+// service 关心规则和流程，repository 只关心参数、SQL 和结果映射。
 namespace chatserver::repository {
 namespace {
 

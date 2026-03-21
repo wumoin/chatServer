@@ -10,6 +10,13 @@
 #include <filesystem>
 #include <string_view>
 
+// AvatarService 只处理头像文件本身的规则：
+// - 是否是图片
+// - 文件大小是否合法
+// - 临时头像如何落到存储层
+// - 正式头像如何从 storage key 解析成可读文件
+//
+// 用户资料是否更新、头像最终归属于谁，则交给 UserService / AuthService。
 namespace chatserver::service {
 namespace {
 

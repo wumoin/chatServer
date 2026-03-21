@@ -15,6 +15,13 @@
 #include <string_view>
 #include <utility>
 
+// AuthService 是认证域的业务编排层：
+// - 注册
+// - 登录
+// - 登出
+//
+// 它把用户仓储、设备会话仓储、密码哈希、token 发行、头像确认等能力组织起来，
+// 对 controller 暴露统一的成功/失败回调接口。
 namespace chatserver::service {
 namespace {
 

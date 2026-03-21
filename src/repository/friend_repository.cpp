@@ -11,6 +11,9 @@
 #include <utility>
 #include <vector>
 
+// FriendRepository 只负责好友申请与好友关系表的数据库读写。
+// 这里不会决定“该不该加好友”，只负责把 service 层已经确认的业务动作
+// 落成 SQL 执行和结果映射。
 namespace chatserver::repository {
 namespace {
 

@@ -11,6 +11,12 @@
 #include <string_view>
 #include <utility>
 
+// FriendService 处理好友域业务：
+// - 发好友申请
+// - 同意 / 拒绝
+// - 查询收件箱 / 发件箱 / 正式好友列表
+//
+// 同时它也是好友 HTTP 成功后触发 WS 实时通知的入口。
 namespace chatserver::service {
 namespace {
 
@@ -122,6 +128,9 @@ void FriendService::sendFriendRequest(
         std::make_shared<SearchResultSuccess>(std::move(onSuccess));
     auto sharedFailure = std::make_shared<Failure>(std::move(onFailure));
 
+    // 第一阶段：同步校验输入和登录态。
+    // 这里先挡住空 target_user_id、非法 request_message 以及无效 token，
+    // 避免把明显错误带进后面的异步数据库链路。
     ServiceError validationError;
     if (!validateSendFriendRequest(request, validationError))
     {
@@ -150,6 +159,8 @@ void FriendService::sendFriendRequest(
     }
 
     const std::string targetUserId = request.targetUserId;
+    // 第二阶段：异步串起“查目标用户 -> 查是否已是好友 -> 创建申请”。
+    // 这样成功时就已经拿到了足够完整的 peer 用户资料，可以直接拼 FriendRequestItemView。
     userRepository_.findUserById(
         targetUserId,
         [request = std::move(request),
@@ -191,6 +202,8 @@ void FriendService::sendFriendRequest(
                     params.targetId = targetUser->userId;
                     params.requestMessage = request.requestMessage;
 
+                    // 申请创建成功后，HTTP 响应和 WS 推送复用同一份 item 视图。
+                    // 这样客户端无论是通过接口返回还是实时事件接收，字段口径都一致。
                     friendRepository_.createFriendRequest(
                         std::move(params),
                         [targetUser = std::move(targetUser),
@@ -204,6 +217,7 @@ void FriendService::sendFriendRequest(
                                 << record.requestId;
                             (*sharedSuccess)(item);
 
+                            // 目标用户在线时再做最佳努力推送；不在线不影响申请创建本身。
                             Json::Value payload(Json::objectValue);
                             payload["request"] =
                                 protocol::dto::friendship::toJson(item);
@@ -282,6 +296,12 @@ void FriendService::acceptFriendRequest(std::string requestId,
     }
 
     const std::string lookupRequestId = requestId;
+    // 同意申请的关键顺序是：
+    // 1. 先查申请是否存在、是否属于当前用户、是否仍是 pending；
+    // 2. 再查申请发起人的展示资料；
+    // 3. 最后执行数据库里的 accept 操作。
+    //
+    // 这样成功后能立即返回一条完整的 FriendRequestItemView，并顺手给发起人做 WS 通知。
     friendRepository_.findFriendRequestById(
         lookupRequestId,
         [claims,
@@ -362,6 +382,7 @@ void FriendService::acceptFriendRequest(std::string requestId,
                                 toFriendRequestItemView(*request, *peerUser);
                             (*sharedSuccess)(item);
 
+                            // 申请通过后，发起人如果在线，会立刻收到状态更新。
                             Json::Value payload(Json::objectValue);
                             payload["request"] =
                                 protocol::dto::friendship::toJson(item);
@@ -429,6 +450,8 @@ void FriendService::rejectFriendRequest(std::string requestId,
     }
 
     const std::string lookupRequestId = requestId;
+    // 拒绝申请的结构与 accept 基本一致，差别只在最终数据库动作和状态值。
+    // 保持这两条链路形状相同，后续阅读和维护会更稳定。
     friendRepository_.findFriendRequestById(
         lookupRequestId,
         [claims,
@@ -509,6 +532,7 @@ void FriendService::rejectFriendRequest(std::string requestId,
                                 toFriendRequestItemView(*request, *peerUser);
                             (*sharedSuccess)(item);
 
+                            // 被拒绝也走实时通知，方便发起人端的申请列表立即更新。
                             Json::Value payload(Json::objectValue);
                             payload["request"] =
                                 protocol::dto::friendship::toJson(item);
@@ -567,6 +591,7 @@ void FriendService::listIncomingFriendRequests(std::string accessToken,
     friendRepository_.listIncomingFriendRequests(
         claims.userId,
         [sharedSuccess](std::vector<repository::FriendRequestListItemRecord> rows) mutable {
+            // 列表查询服务层主要做“仓储记录 -> 对外视图”的映射，保持 controller 简单。
             std::vector<protocol::dto::friendship::FriendRequestItemView> items;
             items.reserve(rows.size());
             for (const auto &row : rows)
@@ -607,6 +632,8 @@ void FriendService::listOutgoingFriendRequests(std::string accessToken,
     friendRepository_.listOutgoingFriendRequests(
         claims.userId,
         [sharedSuccess](std::vector<repository::FriendRequestListItemRecord> rows) mutable {
+            // 发件箱和收件箱都复用同一份 FriendRequestItemView，
+            // 这样客户端列表和实时推送的数据形状可以保持一致。
             std::vector<protocol::dto::friendship::FriendRequestItemView> items;
             items.reserve(rows.size());
             for (const auto &row : rows)
@@ -647,6 +674,7 @@ void FriendService::listFriends(std::string accessToken,
     friendRepository_.listFriends(
         claims.userId,
         [sharedSuccess](std::vector<repository::FriendListItemRecord> rows) mutable {
+            // 好友列表返回的是稳定关系视图，不混入好友申请状态。
             std::vector<protocol::dto::friendship::FriendListItemView> items;
             items.reserve(rows.size());
             for (const auto &row : rows)

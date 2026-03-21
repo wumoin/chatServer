@@ -10,6 +10,8 @@
 #include <string_view>
 #include <utility>
 
+// UserRepository 封装 users 表读写。当前它同时被认证、用户资料、头像、好友搜索
+// 多个 service 复用，因此保持接口语义稳定很重要。
 namespace chatserver::repository {
 namespace {
 

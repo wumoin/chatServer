@@ -9,6 +9,11 @@
 #include <string>
 #include <utility>
 
+// WsSessionService 负责 WebSocket 连接的身份确认和会话绑定。
+// 它处在“协议层”和“业务层”之间：
+// - 连接对象来自 WebSocket controller
+// - 身份校验依赖 access token + device_session
+// - 认证成功后把连接注册到 ConnectionRegistry
 namespace chatserver::service {
 namespace {
 

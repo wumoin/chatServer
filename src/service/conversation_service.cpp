@@ -10,6 +10,9 @@
 #include <string_view>
 #include <utility>
 
+// ConversationService 是会话域的业务编排中心。
+// 它连接了好友关系、会话创建、历史消息查询、文本消息 HTTP 发送以及
+// 部分实时推送触发点。Repository 负责 SQL，而这里负责把业务规则串起来。
 namespace chatserver::service {
 namespace {
 
@@ -63,6 +66,9 @@ void ConversationService::createOrFindPrivateConversation(
         std::make_shared<ConversationItemSuccess>(std::move(onSuccess));
     auto sharedFailure = std::make_shared<Failure>(std::move(onFailure));
 
+    // 第一阶段：做最小输入规范化和参数校验。
+    // 这里先挡住空 peer_user_id、非法字符和“给自己建私聊”这类明显错误，
+    // 后续异步链路就只处理真正可能成功的请求。
     request.peerUserId = trimCopy(request.peerUserId);
     if (request.peerUserId.empty())
     {
@@ -100,6 +106,9 @@ void ConversationService::createOrFindPrivateConversation(
     }
 
     const std::string peerUserId = request.peerUserId;
+    // 第二阶段：异步串起“查对端用户 -> 校验好友关系 -> 创建或复用私聊 -> 回读会话详情”。
+    // 这里故意在最终 createOrFind 成功后再回读一次会话项，而不是直接用 repository
+    // 的 create 结果拼响应，这样 HTTP 返回和后续 ws.new 推送能共用同一份 ConversationView。
     userRepository_.findUserById(
         peerUserId,
         [claims, peerUserId, sharedSuccess, sharedFailure, this](
@@ -136,6 +145,8 @@ void ConversationService::createOrFindPrivateConversation(
                     params.directPairKey =
                         buildDirectPairKey(claims.userId, peerUserId);
 
+                    // 第三阶段：数据库里真正“创建或复用”私聊后，统一回读可展示视图。
+                    // 这样无论是第一次创建还是命中已有私聊，后续行为都完全一致。
                     conversationRepository_.createOrFindDirectConversation(
                         std::move(params),
                         [claims, peerUserId, sharedSuccess, sharedFailure, this](
@@ -156,6 +167,8 @@ void ConversationService::createOrFindPrivateConversation(
                                     auto view = toConversationView(*item);
                                     (*sharedSuccess)(view);
 
+                                    // HTTP 主流程成功后，再做最佳努力实时通知。
+                                    // 即使对端当前不在线，私聊创建本身也已经成立，不应该回滚。
                                     Json::Value payload(Json::objectValue);
                                     payload["conversation"] =
                                         protocol::dto::conversation::toJson(
@@ -339,6 +352,8 @@ void ConversationService::listMessages(
         return;
     }
 
+    // 查询历史消息前先校验“当前用户是否属于这个会话”。
+    // 这样后面的 listMessages SQL 可以专注做分页，不需要再重复做权限判断。
     conversationRepository_.findConversationItem(
         claims.userId,
         conversationId,
@@ -362,6 +377,8 @@ void ConversationService::listMessages(
             params.beforeSeq = request.beforeSeq;
             params.afterSeq = request.afterSeq;
 
+            // 权限校验通过后，再真正执行历史消息分页查询。
+            // before_seq / after_seq 的组合约束已经在函数前半段统一验证过。
             conversationRepository_.listMessages(
                 std::move(params),
                 [sharedSuccess, this](
@@ -451,6 +468,10 @@ void ConversationService::sendTextMessage(
         return;
     }
 
+    // 发送文本消息的 HTTP 路径仍然遵循与 WS 类似的校验顺序：
+    // 1. 先确认当前用户是会话成员；
+    // 2. 再创建消息；
+    // 3. 最后把仓储记录映射成统一 MessageView 返回给客户端。
     conversationRepository_.findConversationItem(
         claims.userId,
         conversationId,
@@ -477,6 +498,8 @@ void ConversationService::sendTextMessage(
             params.clientMessageId = request.clientMessageId;
             params.text = request.text;
 
+            // 文本消息入库后，仓储会同时推进会话的 last_message_seq / last_message_at。
+            // service 层只负责把最终记录转成对外 DTO。
             conversationRepository_.createTextMessage(
                 std::move(params),
                 [sharedSuccess, this](

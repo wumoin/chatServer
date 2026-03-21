@@ -11,6 +11,14 @@
 #include <sstream>
 #include <stdexcept>
 
+// LocalStorage 是 FileStorage 的本地磁盘实现。
+// 它统一负责：
+// - 从 app.json 读取存储目录
+// - 生成 storage key
+// - 安全落盘
+// - 按 storage key 反查真实文件
+//
+// 上层 service 只关心“保存什么文件”，不需要自己拼接磁盘路径。
 namespace chatserver::storage {
 namespace {
 

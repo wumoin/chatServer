@@ -11,6 +11,9 @@
 #include <string>
 #include <string_view>
 
+// FriendController 负责好友域 HTTP 请求的入站协议处理。
+// 这里主要解决 header / query / path 参数解析以及统一响应封装，
+// 具体业务动作交给 FriendService。
 namespace chatserver::transport::http {
 namespace {
 

@@ -12,6 +12,14 @@
 #include <string>
 #include <string_view>
 
+// UserController 是用户资料和头像相关 HTTP 接口入口。
+// 当前涵盖：
+// - 临时头像上传
+// - 资料更新
+// - 用户搜索
+// - 按 user_id 获取头像文件
+//
+// multipart 解析、query/path 读取在这里做，具体业务仍下放到 UserService。
 namespace chatserver::transport::http {
 namespace {
 

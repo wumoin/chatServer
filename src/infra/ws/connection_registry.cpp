@@ -8,6 +8,12 @@
 #include <utility>
 #include <vector>
 
+// ConnectionRegistry 是单进程内存级的在线连接表。
+// 这里不做业务判断，只维护：
+// - device_session_id -> connection
+// - user_id -> 一组 device_session_id
+//
+// 后续 push service 会通过这张表查“某个用户当前有哪些在线连接”。
 namespace chatserver::infra::ws {
 namespace {
 

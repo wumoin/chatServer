@@ -9,6 +9,9 @@
 #include <string_view>
 #include <utility>
 
+// DeviceSessionRepository 负责设备登录态持久化。
+// 登录、登出、ws.auth 校验最终都依赖这里的记录，因此它是 HTTP 会话和 WS 会话之间
+// 的共享底座。
 namespace chatserver::repository {
 namespace {
 
